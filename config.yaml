@@ -1,0 +1,134 @@
+# Cowtrol Systems configuration (body-temperature model version)
+
+serial:
+  port: /dev/ttyACM0        # Arduino Uno R4 WiFi over USB (check with: ls /dev/ttyACM* /dev/ttyUSB*)
+  baud: 9600
+
+# ---------------- Model: predicted cow body temperature (CBT) rise ----------------
+# Trained on MmCows (real cows) with train_realcow.py. Inputs: THI (corrected for air speed and solar),
+# clustering, the share of cows lying and the time of day. Output: the herd's average body temperature above
+# each cow's normal, deg C (the fans serve a whole zone, so the model predicts the zone's average cow).
+realcow:
+  model_path: models/realcow_model.joblib
+  standing_flag:                       # heat-stress sign: fewer cows lying than MmCows cows did at this THI
+    min_thi: 72                        #   only checked at or above this ambient THI
+    margin: 0.2                        #   flag when the lying share is this far below typical (0.2 = 20 points)
+
+# ---------------- THI corrections (see heatload.py) ----------------
+# MmCows has no air speed or solar data, so these enter as corrections to THI before the model.
+heat_load:
+  air_speed:                # ETIC air speed term for dairy cattle (Wang et al. 2018): coef * v^exponent * (body_temp - T)
+    coef: 0.1173
+    exponent: 0.707
+    body_temp_c: 39.2
+  solar:                    # radiation term of Mader et al. (2006) adjusted THI: + 0.0068 THI per W/m2
+    thi_per_wm2: 0.0068     # (from feedlot cattle; the only published per-W/m2 THI term we found)
+  clustering:               # physics estimate of neighbours' body heat. OFF: the model learned clustering from
+    enabled: false          # MmCows directly. Set true to add it on top (it shrinks as air speed rises).
+    sensible_heat_w: 500
+    shared_air_area_m2: 3.0
+    min_air_speed_m_s: 0.2
+
+clustering:
+  neighbor_radius_m: 2.5    # clustering = average number of other cows within this distance (about one cow length)
+
+# ---------------- Inputs we do not sense yet ----------------
+# Used until the camera or a sensor supplies them. All can be changed live on the dashboard ("Manual inputs").
+manual_inputs:
+  solar_wm2: 0              # solar radiation reaching the cows, W/m2 (0 = shaded / night, ~800 = full sun)
+  clustering: 0             # average number of other cows within 2.5 m
+  lying: 0.5                # share of cows lying, 0-1 (camera: yes/no per cow)
+  occupied_quadrants: [Q1, Q2, Q3, Q4, Q5, Q6]   # quadrants with cows in them (camera: where each cow's box is)
+  clock_hour: null          # null = the Pi's clock; 0-23.99 = pretend it is this time of day (demo/testing)
+
+# ---------------- Quadrants, zones, fans and sensors ----------------
+# The barn floor is 6 quadrants, 3 long x 2 wide, seen from behind the fans looking down the barn:
+#      [Q3][Q6]   far
+#      [Q2][Q5]   middle
+#      [Q1][Q4]   near the fans
+#      left right
+# 4 fans stacked 2x2 on the end wall. Each zone is one side: its 2 fans (top and bottom) always run at the same
+# speed and blow down its 3 quadrants. Arduino pins: fan 1 = 9, fan 2 = 10, fan 3 = 11, fan 4 = 3.
+# Air speed AND THI for a zone = the average over the quadrants that have cows in them
+# (all 3 if the zone has no cows reported).
+areas:
+  - {name: left,  fans: [1, 2], quadrants: [Q1, Q2, Q3]}
+  - {name: right, fans: [3, 4], quadrants: [Q4, Q5, Q6]}
+
+# Temperature/humidity sensor in each quadrant (the number the Arduino reports). A quadrant whose sensor is not
+# answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
+# NOW (one sensor for the whole barn):
+quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
+# PLANNED (one sensor per quadrant; 6 DHT20s need an I2C multiplexer, see the Arduino sketch). Swap in when wired:
+# quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
+
+# A side with no cows (camera / manual inputs) turns its fans off. Input faults still force 100 %.
+empty_zone:
+  thi_rules: none               # none = off at any THI | emergency = still 100 % at emergency_thi | all = keep every THI rule
+
+fans:
+  min_duty_pct: 7               # lowest power at which the fan starts (must match MIN_DUTY in the Arduino sketch)
+
+airspeed_map:
+  file: airspeed_map.csv        # your measurements: quadrant, fan_pct, point, air_speed_m_s (copy from data_templates/)
+  placeholder_max_air_speed_m_s: 2.0   # straight line 0 -> this at 100 %, used for quadrants not measured yet
+
+# ---------------- Operator goal ----------------
+# The fan runs at the LOWEST speed that keeps the predicted body temperature rise under target_rise_c,
+# and never below min_duty_pct. The LLM turns free text ("milk prices are high") into these two numbers,
+# within the limits below; they can also be typed in on the dashboard. Safety rules still win.
+goal:
+  default:
+    target_rise_c: 0.15         # = a lying cow at THI 68 (heat stress onset) in the trained model
+    min_duty_pct: 0
+  limits:
+    target_rise_c: [0.05, 0.4]  # 0.05 = cool hard (welfare / milk first), 0.4 = save energy
+    min_duty_pct: [0, 100]
+
+# ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
+safety:
+  emergency_thi: 80           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
+  stress_onset_thi: 68        # ambient THI >= this -> air speed never below min_air_speed_m_s (Penn State, UMN)
+  min_air_speed_m_s: 1.56     # 3.5 mph, low end of Penn State's preferred 3.5-5 mph
+  stale_data_s: 120           # no valid readings this long -> fans 100%
+  valid_temp_c: [-40, 80]     # DHT20 rated range; a reading outside is a sensor fault (fans 100%)
+  valid_rh_pct: [0, 100]
+
+# ---------------- FMEA safeguards (safety.py) ----------------
+safety_checks:
+  override:                     # Alt 1: manual fan control from the dashboard
+    max_minutes: 60             # override ends by itself after this long
+    revoke_thi: 72              # ...or at once when any area's ambient THI reaches this (mild heat stress onset)
+  sensors:                      # Alt 2: checked every control loop; any fault -> fans 100% + dashboard alert
+    no_reading_s: 120           # no reading for this long
+    flatline_minutes: 10        # temperature AND humidity both unchanged for this long...
+    flatline_temp_c: 0.05       #   ...i.e. moved less than this
+    flatline_rh_pct: 0.2
+    max_dev_from_median_c: 3.0  # more than this from the median of the other sensors (needs 3+ sensors)
+  camera:
+    enabled: false              # true once the camera is connected
+    source: picamera2           # picamera2 (Pi camera module) or usb
+    usb_index: 0
+    min_brightness: 15          # mean brightness 0-255 below this = blocked
+    min_similarity: 0.6         # similarity to the reference view below this = moved
+    reference_file: camera_reference.npy
+
+loop:
+  decision_interval_s: 30   # sensor readings are averaged over this window
+  log_csv: logs/decisions.csv
+  log_jsonl: logs/decisions.jsonl   # full records
+
+dashboard:
+  port: 8000                # open http://<pi-hostname>.local:8000 from your laptop/phone
+
+# LM Studio on your laptop: Developer tab -> Start Server, enable "Serve on Local Network".
+# Host = laptop's IP on the hotspot (changes per connection; also editable from the dashboard).
+llm:
+  host: http://192.168.1.50:1234
+  model: local-model        # model identifier shown in LM Studio
+  timeout_s: 120
+  history: 10               # recent decisions the LLM sees
+
+guidelines:
+  dir: guidelines           # .md / .txt / .pdf files used for retrieval (RAG)
+  top_k: 3

@@ -1,0 +1,11 @@
+numpy
+pandas
+scikit-learn
+xgboost
+joblib
+pyyaml
+pyserial
+requests
+flask
+pypdf
+openpyxl
