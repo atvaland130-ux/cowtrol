@@ -23,7 +23,7 @@
 const uint8_t DHT20_ADDR = 0x38;
 const uint8_t NUM_FANS = 4;
 const uint8_t FAN_PINS[NUM_FANS] = {9, 10, 11, 3};   // fan 1, 2, 3, 4 (all PWM pins on the Uno R4)
-const int MIN_DUTY = 7;                       // % - lowest power at which the fan starts from a stop
+const int MIN_DUTY = 35;                       // % - lowest power at which the fan starts from a stop
 const int FAILSAFE_DUTY = 100;                // % - used if the Pi goes silent
 const unsigned long FAILSAFE_MS = 120000UL;   // 2 min without a Pi command
 const unsigned long READ_MS = 2000;
