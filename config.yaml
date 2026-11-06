@@ -67,7 +67,7 @@ empty_zone:
   thi_rules: none               # none = off at any THI | emergency = still 100 % at emergency_thi | all = keep every THI rule
 
 fans:
-  min_duty_pct: 7               # lowest power at which the fan starts (must match MIN_DUTY in the Arduino sketch)
+  min_duty_pct: 35               # lowest power at which the fan starts (must match MIN_DUTY in the Arduino sketch)
 
 airspeed_map:
   file: airspeed_map.csv        # your measurements: quadrant, fan_pct, point, air_speed_m_s (copy from data_templates/)
