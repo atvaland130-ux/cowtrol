@@ -58,7 +58,7 @@ areas:
 # Temperature/humidity sensor in each quadrant (the number the Arduino reports). A quadrant whose sensor is not
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
 # NOW (one sensor for the whole barn):
-quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
+quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
 # PLANNED (one sensor per quadrant; 6 DHT20s need an I2C multiplexer, see the Arduino sketch). Swap in when wired:
 # quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
 
