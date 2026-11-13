@@ -1,15 +1,15 @@
 """Cowtrol main program (runs on the Raspberry Pi).
- 
+
 - Reads the Arduino, runs the decision pipeline every decision_interval_s, sends fan speeds, logs.
 - Serves a live dashboard at http://<pi-hostname>.local:<port>
   (readings, predicted body temperature rise, fans, safety, goal, manual inputs, LLM chat, and a page for
   checking inputs against outputs).
- 
+
 Arduino -> Pi:  S,<temp_c>,<rh_pct>            one sensor (counts as sensor 1), every ~2 s
                 S,<sensor>,<temp_c>,<rh_pct>   several sensors, one line each
                 E,<msg> on a sensor error, A,<d1>,... acknowledges a fan command
 Pi -> Arduino:  F,<duty1>[,<duty2>,...]        duty in % (0-100), one value per fan
- 
+
 Usage:
   python controller.py              # real Arduino
   python controller.py --simulate   # fake sensor, no hardware
@@ -23,10 +23,10 @@ import random
 import sys
 import threading
 import time
- 
+
 import numpy as np
 from flask import Flask, Response, jsonify, request, send_file
- 
+
 from control import (check_hour, clamp_goal, decide, fan_curve, n_fans, reading_valid, resolve_readings, sensor_ids,
                      zone_inputs)
 from cowtrol_common import load_config, nrc_thi, path
@@ -35,8 +35,8 @@ from llm import LLM
 from rag import Guidelines
 from realcow import RealCow
 from safety import InputGuard, ManualOverride, camera_health
- 
- 
+
+
 # ---------- hardware links ----------
 class ArduinoLink:
     def __init__(self, port, baud):
@@ -44,23 +44,23 @@ class ArduinoLink:
         self.ser = serial.Serial(port, baud, timeout=1)
         time.sleep(2)                        # give the Arduino time if it resets when the port opens
         self.ser.reset_input_buffer()
- 
+
     def read_line(self):
         raw = self.ser.readline().decode(errors="ignore").strip()
         return raw or None
- 
+
     def send_fans(self, duties):
         self.ser.write(("F," + ",".join(f"{d:.0f}" for d in duties) + "\n").encode())
- 
- 
+
+
 class SimLink:
     """Random-walk temperature/humidity for testing without hardware (one stream per configured sensor)."""
- 
+
     def __init__(self, sensor_ids=(1,)):
         self.ids = list(sensor_ids)
         self.t, self.rh, self.i = 28.0, 60.0, 0
         self.mode = "ok"        # dashboard test buttons (--simulate only): ok | silent | out_of_range | flatline | far
- 
+
     def read_line(self):
         time.sleep(0.5 / len(self.ids))
         sid = self.ids[self.i % len(self.ids)]
@@ -78,11 +78,11 @@ class SimLink:
         if len(self.ids) == 1:
             return f"S,{t:.1f},{self.rh:.0f}"                # single-sensor line format
         return f"S,{sid},{t:.1f},{self.rh:.0f}"
- 
+
     def send_fans(self, duties):
         pass
- 
- 
+
+
 # ---------- logging ----------
 def log(rec, cfg):
     for key in ("log_csv", "log_jsonl"):
@@ -112,8 +112,8 @@ def log(rec, cfg):
         if new:
             w.writeheader()
         w.writerow(row)
- 
- 
+
+
 # ---------- controller ----------
 class Controller:
     def __init__(self, cfg, link, interval):
@@ -152,7 +152,7 @@ class Controller:
                 self.camera_status = {"enabled": True}
             except Exception as e:                    # camera enabled but not working = a fault
                 self.camera_status = {"enabled": True, "error": f"camera not available: {e}"}
- 
+
     def set_goal(self, target_rise_c, min_duty_pct, note, source):
         g = {**clamp_goal(self.cfg, target_rise_c, min_duty_pct), "note": note, "source": source}
         with self.lock:
@@ -160,18 +160,18 @@ class Controller:
         self.event(f"Goal -> rise under {g['target_rise_c']} C, fans at least {g['min_duty_pct']:.0f}% ({note})")
         self.decide_now.set()
         return g
- 
+
     def set_manual(self, values):
         with self.lock:
             self.manual.update(values)
         self.event("Manual inputs -> " + ", ".join(f"{k} {v}" for k, v in values.items()))
         self.decide_now.set()
- 
+
     def event(self, msg):
         with self.lock:
             self.events.appendleft({"time": time.strftime("%H:%M:%S"), "msg": msg})
         print(f"[event] {msg}")
- 
+
     def handle_reading(self, line):
         """S,<temp>,<rh>  or  S,<sensor>,<temp>,<rh>"""
         parts = line.split(",")
@@ -193,7 +193,7 @@ class Controller:
             sn["seen"] = self.last_valid = time.time()
             sn["latest"] = {"temp_c": t, "rh": h, "thi": round(float(nrc_thi(t, h)), 1),
                             "time": time.strftime("%H:%M:%S")}
- 
+
     def sensor_values(self):
         """Window average per sensor. A sensor silent for stale_data_s counts as not answering (None)."""
         now, out, changes = time.time(), {}, []
@@ -211,7 +211,7 @@ class Controller:
         for c in changes:
             self.event(c)
         return out
- 
+
     def check_inputs(self, values):
         """Alt 2: validate every input before the model runs. Returns a list of fault messages."""
         faults = [f"Sensor {sid}: {why}" for sid, why in self.guard.faults(values).items()]
@@ -240,7 +240,7 @@ class Controller:
         with self.lock:
             self.faults = faults
         return faults
- 
+
     def apply_safeguards(self, rec, faults):
         """Final say on the fan command. Order: input fault (100 %) > manual override > AI decision."""
         n_fans = len(rec["fan_duty_pct"])
@@ -261,21 +261,21 @@ class Controller:
             rec["overrides"].insert(0, f"Manual override: fans {self.override.duty[0]:.0f}% "
                                        f"({rec['manual_override']['remaining_min']} min left)")
             rec["safety_status"] = "Manual override"
- 
+
     def start_override(self, duty):
         n = n_fans(self.cfg)
         with self.lock:
             msg = self.override.start(duty, n)
         self.event(msg)
         self.decide_now.set()
- 
+
     def stop_override(self, reason):
         with self.lock:
             msg = self.override.stop(reason) if self.override.active else None
         if msg:
             self.event(msg)
         self.decide_now.set()
- 
+
     def run(self):
         t0 = time.time()
         while True:
@@ -286,7 +286,7 @@ class Controller:
                 self.handle_reading(line)
             elif line and line.startswith("E,"):
                 self.event(f"Arduino: {line[2:]}")
- 
+
             if time.time() - t0 >= self.interval or self.decide_now.is_set():
                 self.decide_now.clear()
                 stale = time.time() - self.last_valid >= self.cfg["safety"]["stale_data_s"]
@@ -309,8 +309,8 @@ class Controller:
                     self.decisions.append(rec)
                 print(f"{rec['timestamp']} rise={rec['rise_c']} C target={goal['target_rise_c']} "
                       f"duty={rec['fan_duty_pct']} {rec['safety_status']}")
- 
- 
+
+
 # ---------- dashboard ----------
 def make_app(ctl, cfg):
     app = Flask(__name__)
@@ -319,22 +319,22 @@ def make_app(ctl, cfg):
     guides = Guidelines(cfg)
     chat_history = collections.deque(maxlen=6)
     status = {"llm_online": False, "checked": 0}
- 
+
     def llm_status():
         if time.time() - status["checked"] > 15:
             status["llm_online"], status["checked"] = llm.online(), time.time()
         return status["llm_online"]
- 
+
     @app.get("/")
     def index():
         return send_file(path("dashboard.html"))
- 
+
     # --- live camera view (optional) -------------------------------------------------
     # Opens the USB camera on first request and streams JPEG snapshots to the dashboard.
     # Separate from the safety health-check camera (safety_checks.camera); when that is
     # enabled with source: usb they would share one device, so the view stays off then.
     cam_view = {"cap": None, "frame": None, "started": False, "ok": False}
- 
+
     def _open_view_camera():
         import glob
         import cv2
@@ -347,7 +347,7 @@ def make_app(ctl, cfg):
                 return cap
             cap.release()
         return None
- 
+
     def _view_loop():
         while cam_view["cap"] is not None:
             ok, f = cam_view["cap"].read()
@@ -355,7 +355,7 @@ def make_app(ctl, cfg):
                 cam_view["frame"] = f
             else:
                 time.sleep(0.1)
- 
+
     @app.get("/camera.jpg")
     def camera_jpg():
         try:
@@ -374,7 +374,7 @@ def make_app(ctl, cfg):
             return Response(buf.tobytes(), mimetype="image/jpeg")
         except Exception:
             return ("", 503)                                # no OpenCV / no camera -> dashboard shows "no camera"
- 
+
     @app.get("/api/state")
     def state():
         with ctl.lock:
@@ -382,6 +382,8 @@ def make_app(ctl, cfg):
                         "down": sn["down"], **sn["latest"]} for sid, sn in ctl.sensors.items()]
             return jsonify(sensors=sensors, goal=ctl.goal, goal_limits=cfg["goal"]["limits"],
                            goal_default=cfg["goal"]["default"], manual=ctl.manual,
+                           cbt={"baseline_c": cfg["goal"].get("baseline_c"),
+                                "stress_threshold_c": cfg["goal"].get("stress_threshold_c")},
                            decisions=list(ctl.decisions)[-cfg["llm"]["history"]:], events=list(ctl.events),
                            calibrated=ctl.amap.all_measured, model=ctl.model.bundle.get("source", "MmCows"),
                            areas=[{"name": a["name"], "fans": a["fans"], "quadrants": a["quadrants"]}
@@ -397,7 +399,7 @@ def make_app(ctl, cfg):
                                      "max_minutes": cfg["safety_checks"]["override"]["max_minutes"],
                                      "revoke_thi": cfg["safety_checks"]["override"]["revoke_thi"]},
                            simulate=isinstance(ctl.link, SimLink))
- 
+
     @app.post("/api/goal_numbers")         # typed in: works even when the LLM is offline
     def goal_numbers():
         j = request.json or {}
@@ -408,7 +410,7 @@ def make_app(ctl, cfg):
         if j.get("reset"):
             t, d = cfg["goal"]["default"]["target_rise_c"], cfg["goal"]["default"]["min_duty_pct"]
         return jsonify(ctl.set_goal(t, d, "default" if j.get("reset") else "set by hand", "manual"))
- 
+
     @app.post("/api/goal")                 # free text -> LLM -> clamped numbers
     def goal():
         text = request.json.get("text", "").strip()
@@ -421,7 +423,7 @@ def make_app(ctl, cfg):
             return jsonify(error=f"LLM unavailable or invalid output: {e}"), 502
         g = ctl.set_goal(out["target_rise_c"], out["min_duty_pct"], f"LLM: \"{text}\" -> {out['reason']}", "llm")
         return jsonify({**g, "reason": out["reason"], "clamped": out["clamped"]})
- 
+
     @app.post("/api/manual")               # inputs we do not sense yet (solar, clustering, lying, occupied quadrants)
                                            # and the clock override
     def manual():
@@ -449,7 +451,7 @@ def make_app(ctl, cfg):
             return jsonify(error=f"Out of range ({err})."), 400
         ctl.set_manual(vals)
         return jsonify(ok=True)
- 
+
     @app.post("/api/ask")                  # question -> RAG + decision log -> LLM explanation
     def ask():
         q = request.json.get("text", "").strip()
@@ -463,7 +465,7 @@ def make_app(ctl, cfg):
             return jsonify(error=f"LLM unavailable: {e}"), 502
         chat_history.extend([{"role": "user", "content": q}, {"role": "assistant", "content": ans}])
         return jsonify(answer=ans, sources=[{"id": d["id"], "source": d["source"]} for d in retrieved])
- 
+
     @app.post("/api/whatif")               # check page: try inputs, nothing is sent to the fan or logged
     def whatif():
         j = request.json or {}
@@ -492,7 +494,7 @@ def make_app(ctl, cfg):
                        curve=fan_curve(ctl.model, cfg, ctl.amap, temp, rh, z,
                                        duties=(0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
                                                result["fan_duty_pct"], result["ml_duty_pct"])))
- 
+
     @app.post("/api/override")             # Alt 1: manual fan speed, time-limited and auto-revoked
     def override():
         j = request.json or {}
@@ -507,7 +509,7 @@ def make_app(ctl, cfg):
             return jsonify(error="Enter a fan speed from 0 to 100."), 400
         ctl.start_override(duty)
         return jsonify(ok=True)
- 
+
     @app.post("/api/camera_reference")     # re-take the camera's normal view after mounting it
     def camera_reference():
         if ctl.camera is None:
@@ -519,7 +521,7 @@ def make_app(ctl, cfg):
         ctl.event("Camera reference frame re-taken")
         ctl.decide_now.set()
         return jsonify(ok=True)
- 
+
     @app.post("/api/sim_fault")            # --simulate only: test buttons for the safeguards
     def sim_fault():
         if not isinstance(ctl.link, SimLink):
@@ -533,30 +535,29 @@ def make_app(ctl, cfg):
             ctl.link.t += float(j["thi_bump"])
         ctl.decide_now.set()
         return jsonify(ok=True)
- 
+
     @app.post("/api/llm_host")             # hotspot IPs change: update without editing config
     def set_host():
         llm.host = request.json.get("host", "").strip().rstrip("/")
         status["checked"] = 0
         return jsonify(ok=True, online=llm_status())
- 
+
     return app
- 
- 
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--simulate", action="store_true", help="fake sensor, no Arduino")
     ap.add_argument("--interval", type=float, help="override decision interval (s)")
     args = ap.parse_args()
- 
+
     cfg = load_config()
     link = SimLink(sensor_ids(cfg)) if args.simulate else ArduinoLink(cfg["serial"]["port"], cfg["serial"]["baud"])
     ctl = Controller(cfg, link, args.interval or cfg["loop"]["decision_interval_s"])
     threading.Thread(target=ctl.run, daemon=True).start()
     print(f"Dashboard: http://<this-pi>.local:{cfg['dashboard']['port']}")
     make_app(ctl, cfg).run(host="0.0.0.0", port=cfg["dashboard"]["port"], threaded=True)
- 
- 
+
+
 if __name__ == "__main__":
     main()
- 
