@@ -1,23 +1,23 @@
 """LM Studio client (OpenAI-compatible API) for the operator goal and grounded explanations.
-
+ 
 The LLM never sets fan speed directly. It reads the operator's free text (anything: "milk prices are high",
 "power bill is too big this month", "vet visit tomorrow, keep them comfy") and turns it into two numbers the
 controller uses: the target for predicted body temperature rise and a minimum fan speed. Both are clamped to the
 limits in config.yaml -> goal -> limits, and the hard safety rules still apply afterwards."""
 import json
 import re
-
+ 
 import requests
-
+ 
 from control import clamp_goal
-
-
+ 
+ 
 class LLM:
     def __init__(self, cfg):
         self.host = cfg["llm"]["host"].rstrip("/")
         self.model = cfg["llm"]["model"]
         self.timeout = cfg["llm"]["timeout_s"]
-
+ 
     def _chat(self, messages, temperature=0.2, schema=None):
         body = {"model": self.model, "messages": messages, "temperature": temperature}
         if schema:
@@ -26,14 +26,14 @@ class LLM:
         r = requests.post(f"{self.host}/v1/chat/completions", json=body, timeout=self.timeout)
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"]
-
+ 
     def online(self):
         try:
             requests.get(f"{self.host}/v1/models", timeout=3).raise_for_status()
             return True
         except requests.RequestException:
             return False
-
+ 
     def set_goal(self, text, cfg, current, last_decision=None):
         """Free text -> {"target_rise_c", "min_duty_pct", "reason", "clamped"}. Raises ValueError on bad output."""
         lim, dft = cfg["goal"]["limits"], cfg["goal"]["default"]
@@ -50,7 +50,7 @@ class LLM:
         system = f"""You set the cooling goal for an automated dairy barn fan controller from the operator's message.
 The controller predicts each cow's body temperature rise above her normal (deg C) with a model trained on real
 cows, and runs the fans at the LOWEST speed that keeps that rise under target_rise_c, never below min_duty_pct.
-
+ 
 Choose:
 - target_rise_c, between {lim['target_rise_c'][0]} and {lim['target_rise_c'][1]}. Lower = more cooling.
   Default {dft['target_rise_c']} (a resting cow at THI 68, where heat stress begins).
@@ -75,14 +75,27 @@ Reply with JSON only: {{"target_rise_c": ..., "min_duty_pct": ..., "reason": "<o
         goal["clamped"] = (goal["target_rise_c"], goal["min_duty_pct"]) != (round(t, 3), round(d, 1))
         goal["reason"] = str(out.get("reason", ""))[:300]
         return goal
-
+ 
     def explain(self, question, decisions, retrieved, cfg, history=()):
         docs = "\n\n".join(f"[{d['id']}] ({d['source']}) {d['text']}" for d in retrieved) or "(none found)"
         hl, sf = cfg["heat_load"], cfg["safety"]
+        # Plain-language snapshot of the latest decision, so even a small model answers "current" questions
+        # from fact instead of guessing from the JSON log.
+        cur = decisions[-1] if decisions else None
+        if cur:
+            duties = cur.get("fan_duty_pct") or []
+            now = (f"CURRENT STATE (most recent decision, {cur.get('timestamp','')}):\n"
+                   f"- fan speed: {', '.join(str(round(d)) for d in duties)} % (per fan); "
+                   f"max {round(max(duties)) if duties else 0} %\n"
+                   f"- safety status: {cur.get('safety_status','?')}; overrides: {cur.get('overrides') or 'none'}\n"
+                   f"- target rise: {cur.get('goal',{}).get('target_rise_c','?')} C\n"
+                   "Use these exact numbers for any question about the CURRENT state.")
+        else:
+            now = "CURRENT STATE: no decisions yet."
         system = f"""You explain an automated dairy barn fan controller to its operator.
 Rules: use ONLY the decision log and guideline excerpts below. Cite guidelines as [G#]. Quote numbers exactly
 as they appear in the log. If the answer isn't in the data, say so. Be concise (under 150 words).
-
+ 
 How decisions are made, for each zone (one side of the barn: 3 quadrants, 2 fans that run together):
 1. Each quadrant with cows is checked on its own: its sensor gives ambient THI (NRC 1971). A sensor that is not
    answering borrows the average of the working sensors ("sensor_borrowed": true). The zone's fans run at the speed
@@ -106,11 +119,14 @@ How decisions are made, for each zone (one side of the barn: 3 quadrants, 2 fans
    {sf['stale_data_s']} s -> 100%; input faults -> 100%. Overrides are listed in "overrides".
 "standing_flag": fewer cows lying than real cows did at that THI, a sign of heat stress.
 "air_speed_measured": false means the air speed table for those quadrants is still a placeholder.
-
+ 
+{now}
+ 
 GUIDELINE EXCERPTS
 {docs}
-
+ 
 RECENT DECISIONS (oldest first)
 {json.dumps(decisions, indent=1)}"""
         msgs = [{"role": "system", "content": system}, *history, {"role": "user", "content": question}]
         return self._chat(msgs, temperature=0.3)
+ 
