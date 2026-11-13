@@ -1,9 +1,9 @@
 # Cowtrol Systems configuration (body-temperature model version)
-
+ 
 serial:
   port: /dev/ttyACM0        # Arduino Uno R4 WiFi over USB (check with: ls /dev/ttyACM* /dev/ttyUSB*)
   baud: 9600
-
+ 
 # ---------------- Model: predicted cow body temperature (CBT) rise ----------------
 # Trained on MmCows (real cows) with train_realcow.py. Inputs: THI (corrected for air speed and solar),
 # clustering, the share of cows lying and the time of day. Output: the herd's average body temperature above
@@ -13,7 +13,7 @@ realcow:
   standing_flag:                       # heat-stress sign: fewer cows lying than MmCows cows did at this THI
     min_thi: 72                        #   only checked at or above this ambient THI
     margin: 0.2                        #   flag when the lying share is this far below typical (0.2 = 20 points)
-
+ 
 # ---------------- THI corrections (see heatload.py) ----------------
 # MmCows has no air speed or solar data, so these enter as corrections to THI before the model.
 heat_load:
@@ -28,10 +28,10 @@ heat_load:
     sensible_heat_w: 500
     shared_air_area_m2: 3.0
     min_air_speed_m_s: 0.2
-
+ 
 clustering:
   neighbor_radius_m: 2.5    # clustering = average number of other cows within this distance (about one cow length)
-
+ 
 # ---------------- Inputs we do not sense yet ----------------
 # Used until the camera or a sensor supplies them. All can be changed live on the dashboard ("Manual inputs").
 manual_inputs:
@@ -40,7 +40,7 @@ manual_inputs:
   lying: 0.5                # share of cows lying, 0-1 (camera: yes/no per cow)
   occupied_quadrants: [Q1, Q2, Q3, Q4, Q5, Q6]   # quadrants with cows in them (camera: where each cow's box is)
   clock_hour: null          # null = the Pi's clock; 0-23.99 = pretend it is this time of day (demo/testing)
-
+ 
 # ---------------- Quadrants, zones, fans and sensors ----------------
 # The barn floor is 6 quadrants, 3 long x 2 wide, seen from behind the fans looking down the barn:
 #      [Q3][Q6]   far
@@ -54,7 +54,7 @@ manual_inputs:
 areas:
   - {name: left,  fans: [1, 2], quadrants: [Q1, Q2, Q3]}
   - {name: right, fans: [3, 4], quadrants: [Q4, Q5, Q6]}
-
+ 
 # Temperature/humidity sensor in each quadrant (the number the Arduino reports). A quadrant whose sensor is not
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
 # One sensor per quadrant (6 SHT45s behind the TCA9548A mux; sensor id = mux channel + 1). A failed/silent
@@ -62,18 +62,18 @@ areas:
 quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
 # For bench testing with ONE sensor for the whole barn, swap in:
 # quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
-
+ 
 # A side with no cows (camera / manual inputs) turns its fans off. Input faults still force 100 %.
 empty_zone:
   thi_rules: none               # none = off at any THI | emergency = still 100 % at emergency_thi | all = keep every THI rule
-
+ 
 fans:
   min_duty_pct: 35              # real fan cut-in from the airflow measurements (must match MIN_DUTY in the Arduino sketch)
-
+ 
 airspeed_map:
   file: airspeed_map.csv        # your measurements: quadrant, fan_pct, point, air_speed_m_s (copy from data_templates/)
   placeholder_max_air_speed_m_s: 2.0   # straight line 0 -> this at 100 %, used for quadrants not measured yet
-
+ 
 # ---------------- Operator goal ----------------
 # The fan runs at the LOWEST speed that keeps the predicted body temperature rise under target_rise_c,
 # and never below min_duty_pct. The LLM turns free text ("milk prices are high") into these two numbers,
@@ -99,7 +99,7 @@ goal:
   # Reference values for the dashboard's absolute-CBT readout (estimated CBT = baseline_c + predicted rise):
   baseline_c: 38.6              # thermoneutral core temp (Idris et al. 2021; Galan et al. 2018)
   stress_threshold_c: 38.8      # heat-stress core temp on MmCows (Alvi et al. 2026)
-
+ 
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
   emergency_thi: 80           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
@@ -113,7 +113,7 @@ safety:
   stale_data_s: 120           # no valid readings this long -> fans 100%
   valid_temp_c: [-40, 80]     # DHT20 rated range; a reading outside is a sensor fault (fans 100%)
   valid_rh_pct: [0, 100]
-
+ 
 # ---------------- FMEA safeguards (safety.py) ----------------
 safety_checks:
   override:                     # Alt 1: manual fan control from the dashboard
@@ -132,23 +132,24 @@ safety_checks:
     min_brightness: 15          # mean brightness 0-255 below this = blocked
     min_similarity: 0.6         # similarity to the reference view below this = moved
     reference_file: camera_reference.npy
-
+ 
 loop:
   decision_interval_s: 30   # sensor readings are averaged over this window
   log_csv: logs/decisions.csv
   log_jsonl: logs/decisions.jsonl   # full records
-
+ 
 dashboard:
   port: 8000                # open http://<pi-hostname>.local:8000 from your laptop/phone
-
+ 
 # LM Studio on your laptop: Developer tab -> Start Server, enable "Serve on Local Network".
 # Host = laptop's IP on the hotspot (changes per connection; also editable from the dashboard).
 llm:
   host: http://localhost:11434   # local Ollama on the Pi (OpenAI-compatible API at /v1)
-  model: llama3.2:1b             # small model that fits the Pi 4; `ollama pull` it first
-  timeout_s: 120
+  model: qwen2.5:0.5b            # fastest tiny model for the Pi 4 CPU; `ollama pull qwen2.5:0.5b`
+  timeout_s: 300                 # Pi CPU is slow, esp. the first (cold) call; give it room
   history: 10               # recent decisions the LLM sees
-
+ 
 guidelines:
   dir: guidelines           # .md / .txt / .pdf files used for retrieval (RAG)
   top_k: 3
+ 
