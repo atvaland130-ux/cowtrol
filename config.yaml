@@ -58,7 +58,7 @@ areas:
 # Temperature/humidity sensor in each quadrant (the number the Arduino reports). A quadrant whose sensor is not
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
 # NOW (one sensor for the whole barn):
-quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
+quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
 # PLANNED (one sensor per quadrant; 6 DHT20s need an I2C multiplexer, see the Arduino sketch). Swap in when wired:
 # quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
 
@@ -67,7 +67,7 @@ empty_zone:
   thi_rules: none               # none = off at any THI | emergency = still 100 % at emergency_thi | all = keep every THI rule
 
 fans:
-  min_duty_pct: 35               # lowest power at which the fan starts (must match MIN_DUTY in the Arduino sketch)
+  min_duty_pct: 7               # lowest power at which the fan starts (must match MIN_DUTY in the Arduino sketch)
 
 airspeed_map:
   file: airspeed_map.csv        # your measurements: quadrant, fan_pct, point, air_speed_m_s (copy from data_templates/)
@@ -79,17 +79,36 @@ airspeed_map:
 # within the limits below; they can also be typed in on the dashboard. Safety rules still win.
 goal:
   default:
-    target_rise_c: 0.15         # = a lying cow at THI 68 (heat stress onset) in the trained model
+    # target_rise_c is anchored to published core-body-temperature values:
+    #   baseline_c (38.6) = thermoneutral core temp of a dairy cow (Idris et al. 2021, Animals 11:71,
+    #                       "38.6 C, range 38.0-39.3"; Galan et al. 2018 PLoS ONE ~38.5).
+    #   stress_threshold_c (38.8) = heat-stress core temp used on this same MmCows dataset (Alvi et al. 2026,
+    #                       Comput. Electron. Agric. 112487, P(stress) threshold 38.8 C).
+    #   onset rise = stress_threshold_c - baseline_c = 38.8 - 38.6 = 0.2 C (where heat stress begins).
+    # We target BELOW that, to keep a safety buffer against model error (+-0.05-0.1 within our R2) and because
+    # heat stress >> fan energy: target_rise_c 0.15 holds the herd at ~38.75 C, under the 38.8 onset.
+    # NOTE: unlike the THI-68 onset, there is no single canonical core-temp heat-stress cutoff in the
+    # literature (reviews give fever 39.4-39.7 C and call for more research); 38.8 is the value published on
+    # this MmCows dataset. "Rise" = deg C above each cow's own cool baseline (median CBT when THI < 68).
+    target_rise_c: 0.15
     min_duty_pct: 0
   limits:
     target_rise_c: [0.05, 0.4]  # 0.05 = cool hard (welfare / milk first), 0.4 = save energy
     min_duty_pct: [0, 100]
+  # Reference values for the dashboard's absolute-CBT readout (estimated CBT = baseline_c + predicted rise):
+  baseline_c: 38.6              # thermoneutral core temp (Idris et al. 2021; Galan et al. 2018)
+  stress_threshold_c: 38.8      # heat-stress core temp on MmCows (Alvi et al. 2026)
 
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
   emergency_thi: 80           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
-  stress_onset_thi: 68        # ambient THI >= this -> air speed never below min_air_speed_m_s (Penn State, UMN)
-  min_air_speed_m_s: 1.56     # 3.5 mph, low end of Penn State's preferred 3.5-5 mph
+  stress_onset_thi: 68        # ambient THI >= this -> air-speed floor applies (Penn State, UMN)
+  min_air_speed_m_s: 1.56     # 3.5 mph, low end of Penn State's preferred 3.5-5 mph (floor at ramp_full_thi)
+  # Lever A: ramp the floor up across the onset band instead of a hard step at stress_onset_thi.
+  # Required floor rises linearly from floor_start_m_s @ stress_onset_thi to min_air_speed_m_s @ ramp_full_thi.
+  # Set ramp_full_thi == stress_onset_thi (or floor_start_m_s == min_air_speed_m_s) to restore the old hard step.
+  floor_start_m_s: 0.7        # floor demanded right at stress_onset_thi (~35% fans in the measured map)
+  ramp_full_thi: 78           # THI at which the full min_air_speed_m_s floor is required
   stale_data_s: 120           # no valid readings this long -> fans 100%
   valid_temp_c: [-40, 80]     # DHT20 rated range; a reading outside is a sensor fault (fans 100%)
   valid_rh_pct: [0, 100]
