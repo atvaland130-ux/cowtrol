@@ -114,6 +114,28 @@ def rise_table(model, cfg, amap, temp_c, rh, z, duties=None):
     return {"duty": duties, "air_speed": v, "rise": rise, **parts}
 
 
+def required_air_floor(s, thi):
+    """Minimum air speed the safety rule demands at this THI.
+
+    Lever A: instead of jumping straight to min_air_speed_m_s the instant THI
+    crosses stress_onset_thi, the required floor ramps linearly from
+    floor_start_m_s at stress_onset_thi up to the full min_air_speed_m_s at
+    ramp_full_thi. That turns the old 0 -> 61% cliff into a smooth 35 -> 61%
+    sweep across the onset band. If ramp_full_thi / floor_start_m_s are not set
+    (or ramp_full_thi <= stress_onset_thi), it falls back to the old hard step.
+    """
+    full = s["min_air_speed_m_s"]
+    start = s.get("floor_start_m_s", full)
+    onset = s["stress_onset_thi"]
+    top = s.get("ramp_full_thi", onset)
+    if top <= onset or start >= full:
+        return full                                        # unconfigured -> old hard step
+    if thi >= top:
+        return full
+    frac = (thi - onset) / (top - onset)
+    return start + (full - start) * frac
+
+
 def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
     s = cfg["safety"]
     tab = rise_table(model, cfg, amap, temp_c, rh, z)
@@ -132,16 +154,17 @@ def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
 
     # 5. hard safety rules
     if rules == "all" and thi >= s["stress_onset_thi"]:
-        enough = tab["air_speed"] >= s["min_air_speed_m_s"] - 1e-9
+        floor = required_air_floor(s, thi)                 # ramps with THI (lever A), or a hard step if unconfigured
+        enough = tab["air_speed"] >= floor - 1e-9
         if not enough.any():
             if i != last:
                 overrides.append(f"THI {thi:.1f} >= {s['stress_onset_thi']}: fans cannot reach "
-                                 f"{s['min_air_speed_m_s']} m/s in zone {area['name']}, running 100%")
+                                 f"{floor:.2f} m/s in zone {area['name']}, running 100%")
             i = last
         elif not enough[i]:
             i = int(np.argmax(enough))
             overrides.append(f"THI {thi:.1f} >= {s['stress_onset_thi']}: air speed raised to the "
-                             f"{s['min_air_speed_m_s']} m/s minimum")
+                             f"{floor:.2f} m/s minimum for this THI")
     if rules in ("all", "emergency") and thi >= s["emergency_thi"] and tab["duty"][i] < 100:
         i = last
         overrides.append(f"THI {thi:.1f} >= {s['emergency_thi']} (emergency): fans forced to 100%")
