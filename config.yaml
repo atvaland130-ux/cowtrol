@@ -11,7 +11,7 @@ serial:
 realcow:
   model_path: models/realcow_model.joblib
   standing_flag:                       # heat-stress sign: fewer cows lying than MmCows cows did at this THI
-    min_thi: 72                        #   only checked at or above this ambient THI
+    min_thi: 68                        #   only checked at or above this ambient THI
     margin: 0.2                        #   flag when the lying share is this far below typical (0.2 = 20 points)
  
 # ---------------- THI corrections (see heatload.py) ----------------
