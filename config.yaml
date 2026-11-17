@@ -102,7 +102,7 @@ goal:
     # NOTE: unlike the THI-68 onset, there is no single canonical core-temp heat-stress cutoff in the
     # literature (reviews give fever 39.4-39.7 C and call for more research); 38.8 is the value published on
     # this MmCows dataset. "Rise" = deg C above each cow's own cool baseline (median CBT when THI < 68).
-    target_rise_c: 0.05
+    target_rise_c: 0.15
     min_duty_pct: 0
   limits:
     target_rise_c: [0.05, 0.4]  # 0.05 = cool hard (welfare / milk first), 0.4 = save energy
