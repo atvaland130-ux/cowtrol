@@ -11,7 +11,7 @@ serial:
 realcow:
   model_path: models/realcow_model.joblib
   standing_flag:                       # heat-stress sign: fewer cows lying than MmCows cows did at this THI
-    min_thi: 68                        #   only checked at or above this ambient THI
+    min_thi: 72                        #   only checked at or above this ambient THI
     margin: 0.2                        #   flag when the lying share is this far below typical (0.2 = 20 points)
  
 # ---------------- THI corrections (see heatload.py) ----------------
@@ -132,6 +132,30 @@ safety_checks:
     min_brightness: 15          # mean brightness 0-255 below this = blocked
     min_similarity: 0.6         # similarity to the reference view below this = moved
     reference_file: camera_reference.npy
+ 
+# ---------------- Camera -> model inputs (vision_inputs.py) ----------------
+# Turns YOLO detections (standing/lying cows) into per-zone occupied quadrants, clustering
+# and lying share, replacing the dashboard "Manual inputs" while it is on.
+# OFF until the camera is MOUNTED and calibrated: floor_quad_px and barn_wh_m both depend on
+# the final camera position. Run calibrate_vision.py after mounting to set them.
+vision:
+  enabled: false                # true once mounted + calibrated
+  model_path: best.pt           # fine-tuned weights on the Pi
+  conf: 0.5                     # detection threshold (match what looked right in demo.py)
+  imgsz: 320
+  frame_w: 640
+  frame_h: 480
+  ground_point: center          # center (overhead view) or bottom (oblique/corner view)
+  cluster_radius_m: 2.5         # "within 2.5 m" = one cow length (same as the model's training)
+  lying_class_contains: lying   # class names whose text contains this count as lying
+  # The barn floor's 4 corners IN THE IMAGE (pixels), order [near-left, near-right, far-right, far-left];
+  # NEAR = row closest to the fans (Q1/Q4), LEFT = the Q1-Q3 side. PLACEHOLDER = whole 640x480 frame,
+  # axis-aligned — REPLACE after mounting using calibrate_vision.py.
+  floor_quad_px: [[0, 480], [640, 480], [640, 0], [0, 0]]
+  barn_wh_m: [6.0, 9.0]         # real floor size [width (left-right), length (near-far)] in metres — MEASURE and set
+  quadrant_grid:                # which quadrant each (column, row) cell is; matches `areas`
+    left:  {near: Q1, mid: Q2, far: Q3}
+    right: {near: Q4, mid: Q5, far: Q6}
  
 loop:
   decision_interval_s: 30   # sensor readings are averaged over this window
