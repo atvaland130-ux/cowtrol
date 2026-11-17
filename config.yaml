@@ -24,7 +24,7 @@ heat_load:
   solar:                    # radiation term of Mader et al. (2006) adjusted THI: + 0.0068 THI per W/m2
     thi_per_wm2: 0.0068     # (from feedlot cattle; the only published per-W/m2 THI term we found)
   clustering:               # physics estimate of neighbours' body heat. OFF: the model learned clustering from
-    enabled: false          # MmCows directly. Set true to add it on top (it shrinks as air speed rises).
+    enabled: true          # MmCows directly. Set true to add it on top (it shrinks as air speed rises).
     sensible_heat_w: 500
     shared_air_area_m2: 3.0
     min_air_speed_m_s: 0.2
@@ -137,7 +137,7 @@ safety_checks:
     flatline_rh_pct: 0.2
     max_dev_from_median_c: 10.0  # more than this from the median of the other sensors (needs 3+ sensors)
   camera:
-    enabled: false              # true once the camera is connected
+    enabled: true              # true once the camera is connected
     source: picamera2           # picamera2 (Pi camera module) or usb
     usb_index: 0
     min_brightness: 15          # mean brightness 0-255 below this = blocked
