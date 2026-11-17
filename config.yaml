@@ -137,7 +137,7 @@ safety_checks:
     flatline_rh_pct: 0.2
     max_dev_from_median_c: 10.0  # more than this from the median of the other sensors (needs 3+ sensors)
   camera:
-    enabled: true              # true once the camera is connected
+    enabled: false              # true once the camera is connected
     source: picamera2           # picamera2 (Pi camera module) or usb
     usb_index: 0
     min_brightness: 15          # mean brightness 0-255 below this = blocked
