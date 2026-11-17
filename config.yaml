@@ -59,7 +59,7 @@ areas:
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
 # One sensor per quadrant (6 SHT45s behind the TCA9548A mux; sensor id = mux channel + 1). A failed/silent
 # sensor borrows its side's average, so flaky wiring degrades gracefully.
-quadrant_sensors: {Q1: 1, Q2: 2, Q3: 3, Q4: 4, Q5: 5, Q6: 6}
+quadrant_sensors: {Q1: 3, Q2: 2, Q3: 1, Q4: 6, Q5: 5, Q6: 4}
 # For bench testing with ONE sensor for the whole barn, swap in:
 # quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
  
