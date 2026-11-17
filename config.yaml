@@ -11,7 +11,7 @@ serial:
 realcow:
   model_path: models/realcow_model.joblib
   standing_flag:                       # heat-stress sign: fewer cows lying than MmCows cows did at this THI
-    min_thi: 100                        #   only checked at or above this ambient THI
+    min_thi: 72                        #   only checked at or above this ambient THI
     margin: 0.2                        #   flag when the lying share is this far below typical (0.2 = 20 points)
  
 # ---------------- THI corrections (see heatload.py) ----------------
@@ -114,7 +114,7 @@ goal:
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
   emergency_thi: 80           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
-  stress_onset_thi: 68        # ambient THI >= this -> air-speed floor applies (Penn State, UMN)
+  stress_onset_thi: 100        # ambient THI >= this -> air-speed floor applies (Penn State, UMN)
   min_air_speed_m_s: 1.56     # 3.5 mph, low end of Penn State's preferred 3.5-5 mph (floor at ramp_full_thi)
   # Lever A: ramp the floor up across the onset band instead of a hard step at stress_onset_thi.
   # Required floor rises linearly from floor_start_m_s @ stress_onset_thi to min_air_speed_m_s @ ramp_full_thi.
