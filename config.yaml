@@ -113,14 +113,14 @@ goal:
  
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
-  emergency_thi: 80           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
+  emergency_thi: 100           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
   stress_onset_thi: 100        # ambient THI >= this -> air-speed floor applies (Penn State, UMN)
   min_air_speed_m_s: 1.56     # 3.5 mph, low end of Penn State's preferred 3.5-5 mph (floor at ramp_full_thi)
   # Lever A: ramp the floor up across the onset band instead of a hard step at stress_onset_thi.
   # Required floor rises linearly from floor_start_m_s @ stress_onset_thi to min_air_speed_m_s @ ramp_full_thi.
   # Set ramp_full_thi == stress_onset_thi (or floor_start_m_s == min_air_speed_m_s) to restore the old hard step.
   floor_start_m_s: 0.7        # floor demanded right at stress_onset_thi (~35% fans in the measured map)
-  ramp_full_thi: 78           # THI at which the full min_air_speed_m_s floor is required
+  ramp_full_thi: 100           # THI at which the full min_air_speed_m_s floor is required
   stale_data_s: 120           # no valid readings this long -> fans 100%
   valid_temp_c: [-40, 80]     # DHT20 rated range; a reading outside is a sensor fault (fans 100%)
   valid_rh_pct: [0, 100]
