@@ -153,6 +153,17 @@ class Controller:
             except Exception as e:                    # camera enabled but not working = a fault
                 self.camera_status = {"enabled": True, "error": f"camera not available: {e}"}
  
+        # Camera -> model inputs (vision_inputs.py). Off unless config vision.enabled; when on it
+        # owns the USB camera (the dashboard live view then reads frames from it).
+        self.vision = None
+        if cfg.get("vision", {}).get("enabled") and not isinstance(link, SimLink):
+            try:
+                from vision_inputs import VisionInputs
+                self.vision = VisionInputs(cfg)
+                print("[vision] camera inputs ON (model:", cfg["vision"]["model_path"], ")")
+            except Exception as e:
+                print(f"[vision] disabled: {e}")   # missing model/opencv/ultralytics -> fall back to manual
+ 
     def set_goal(self, target_rise_c, min_duty_pct, note, source):
         g = {**clamp_goal(self.cfg, target_rise_c, min_duty_pct), "note": note, "source": source}
         with self.lock:
@@ -298,8 +309,8 @@ class Controller:
                 t0 = time.time()
                 with self.lock:
                     goal, manual = dict(self.goal), dict(self.manual)
-                # TODO (camera): pass camera={zone: {"quadrants", "lying", "clustering"}} once the vision model is in
-                inputs = zone_inputs(self.cfg, manual)
+                camera = self.vision.camera_dict() if self.vision else None   # None -> manual inputs
+                inputs = zone_inputs(self.cfg, manual, camera=camera)
                 rec = decide(self.model, self.cfg, self.amap, goal, readings, inputs,
                              stale=readings is None, warnings=warnings)
                 self.apply_safeguards(rec, faults)
@@ -360,6 +371,12 @@ def make_app(ctl, cfg):
     def camera_jpg():
         try:
             import cv2
+            if ctl.vision is not None:                     # vision owns the camera; share its frame
+                f = ctl.vision.source.frame()
+                if f is None:
+                    return ("", 503)
+                ok, buf = cv2.imencode(".jpg", f)
+                return Response(buf.tobytes(), mimetype="image/jpeg")
             if not cam_view["started"]:
                 cam_view["started"] = True
                 if not ctl.camera_status.get("enabled"):   # don't fight the safety camera for the device
@@ -388,7 +405,7 @@ def make_app(ctl, cfg):
                            calibrated=ctl.amap.all_measured, model=ctl.model.bundle.get("source", "MmCows"),
                            areas=[{"name": a["name"], "fans": a["fans"], "quadrants": a["quadrants"]}
                                   for a in cfg["areas"]],
-                           camera_inputs=False,        # TODO (camera): True once the vision model supplies inputs
+                           camera_inputs=ctl.vision is not None,   # True when the camera feeds the model
                            llm_host=llm.host, llm_online=llm_status(),
                            seconds_since_valid=round(time.time() - ctl.last_valid),
                            faults=ctl.faults, camera=ctl.camera_status,
