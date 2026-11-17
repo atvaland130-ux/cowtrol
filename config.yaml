@@ -1,7 +1,7 @@
 # Cowtrol Systems configuration (body-temperature model version)
  
 serial:
-  port: /dev/ttyACM0        # Arduino Uno R4 WiFi over USB (check with: ls /dev/ttyACM* /dev/ttyUSB*)
+  port: /dev/ttyACM1        # Arduino Uno R4 WiFi over USB (check with: ls /dev/ttyACM* /dev/ttyUSB*)
   baud: 9600
  
 # ---------------- Model: predicted cow body temperature (CBT) rise ----------------
