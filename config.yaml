@@ -150,6 +150,13 @@ safety_checks:
 # OFF until the camera is MOUNTED and calibrated: floor_quad_px and barn_wh_m both depend on
 # the final camera position. Run calibrate_vision.py after mounting to set them.
 vision:
+  quadrant_centers_px:
+    Q1: [306, 383]
+    Q2: [154, 148]
+    Q3: [106, 47]
+    Q4: [567, 218]
+    Q5: [342, 65]
+    Q6: [277, 13]
   enabled: true                # true once mounted + calibrated
   model_path: best.pt           # fine-tuned weights on the Pi
   conf: 0.5                     # detection threshold (match what looked right in demo.py)
