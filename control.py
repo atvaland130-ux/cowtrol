@@ -1,5 +1,5 @@
 """Decision pipeline (no hardware). Used by controller.py (live) and the dashboard check page.
-
+ 
 Each zone (config.yaml -> areas) is one side of the barn: 3 quadrants (each with a temperature/humidity sensor)
 and 2 fans that run together. For each zone:
   Steps 1-5 run for EACH quadrant with cows, on its own sensor and its own measured air speed:
@@ -15,25 +15,25 @@ and 2 fans that run together. For each zone:
   (under-cooling costs milk, fertility and welfare; over-cooling only costs fan energy).
 """
 from datetime import datetime
-
+ 
 import numpy as np
-
+ 
 from heatload import effective_thi
 from realcow import local_hour
-
-
+ 
+ 
 def sensor_ids(cfg):
     return sorted(set(cfg["quadrant_sensors"].values()))
-
-
+ 
+ 
 def side_of(cfg, quadrant):
     return next(a["name"] for a in cfg["areas"] if quadrant in a["quadrants"])
-
-
+ 
+ 
 def n_fans(cfg):
     return max(f for a in cfg["areas"] for f in a["fans"])
-
-
+ 
+ 
 def zone_inputs(cfg, manual, camera=None):
     """Per-zone model inputs. manual = dashboard/config values; camera = {zone: {...}} from the camera when it
     is connected (it wins over manual for what it reports). Returns {zone: {clustering, lying, hour, quadrants,
@@ -53,18 +53,18 @@ def zone_inputs(cfg, manual, camera=None):
             "solar_wm2": float(manual["solar_wm2"]),
         }
     return out
-
-
+ 
+ 
 def check_hour(clock_hour):
     """None if fine, else an error message (dashboard clock override)."""
     if clock_hour is not None and not 0 <= clock_hour < 24:
         return "clock hour 0-23.99 (or blank for the real clock)"
     return None
-
-
+ 
+ 
 def resolve_readings(cfg, sensor_values):
     """Give every quadrant a temperature and humidity.
-
+ 
     sensor_values = {sensor id: (temp_c, rh)} for the sensors that are answering.
     A quadrant whose sensor is not answering borrows the average of the working sensors on its side
     (or of all working sensors if none on its side work).
@@ -86,25 +86,25 @@ def resolve_readings(cfg, sensor_values):
         warnings.append(f"{q}: sensor {sid} is not answering, using the average of sensor(s) "
                         f"{', '.join(map(str, src))}")
     return out, warnings
-
-
+ 
+ 
 def reading_valid(cfg, temp_c, rh):
     lo_t, hi_t = cfg["safety"]["valid_temp_c"]
     lo_h, hi_h = cfg["safety"]["valid_rh_pct"]
     return lo_t <= temp_c <= hi_t and lo_h <= rh <= hi_h
-
-
+ 
+ 
 def candidate_duties(cfg):
     return np.concatenate([[0.0], np.arange(cfg["fans"]["min_duty_pct"], 101, 1.0)])
-
-
+ 
+ 
 def clamp_goal(cfg, target_rise_c, min_duty_pct):
     lim = cfg["goal"]["limits"]
     t = float(np.clip(target_rise_c, *lim["target_rise_c"]))
     m = float(np.clip(min_duty_pct, *lim["min_duty_pct"]))
     return {"target_rise_c": round(t, 3), "min_duty_pct": round(m, 1)}
-
-
+ 
+ 
 def rise_table(model, cfg, amap, temp_c, rh, z, duties=None):
     """Air speed, THI parts and predicted CBT rise for each candidate fan speed in one zone."""
     duties = candidate_duties(cfg) if duties is None else np.asarray(duties, dtype=float)
@@ -112,11 +112,11 @@ def rise_table(model, cfg, amap, temp_c, rh, z, duties=None):
     parts = effective_thi(temp_c, rh, v, z["clustering"], z["solar_wm2"], cfg)
     rise = model.steady_state_many(parts["thi_eff"], z)
     return {"duty": duties, "air_speed": v, "rise": rise, **parts}
-
-
+ 
+ 
 def required_air_floor(s, thi):
     """Minimum air speed the safety rule demands at this THI.
-
+ 
     Lever A: instead of jumping straight to min_air_speed_m_s the instant THI
     crosses stress_onset_thi, the required floor ramps linearly from
     floor_start_m_s at stress_onset_thi up to the full min_air_speed_m_s at
@@ -134,14 +134,14 @@ def required_air_floor(s, thi):
         return full
     frac = (thi - onset) / (top - onset)
     return start + (full - start) * frac
-
-
+ 
+ 
 def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
     s = cfg["safety"]
     tab = rise_table(model, cfg, amap, temp_c, rh, z)
     thi = float(tab["thi_ambient"][0])
     overrides, last = [], len(tab["duty"]) - 1
-
+ 
     # 4. lowest fan speed (at or above the goal's minimum) whose predicted rise is under the target
     allowed = tab["duty"] >= goal["min_duty_pct"] - 1e-9
     ok = allowed & (tab["rise"] <= goal["target_rise_c"])
@@ -151,7 +151,7 @@ def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
     if not z["cows_present"]:                      # nobody to cool
         ml_i, rules = 0, cfg.get("empty_zone", {}).get("thi_rules", "none")
     i = ml_i
-
+ 
     # 5. hard safety rules
     if rules == "all" and thi >= s["stress_onset_thi"]:
         floor = required_air_floor(s, thi)                 # ramps with THI (lever A), or a hard step if unconfigured
@@ -168,7 +168,7 @@ def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
     if rules in ("all", "emergency") and thi >= s["emergency_thi"] and tab["duty"][i] < 100:
         i = last
         overrides.append(f"THI {thi:.1f} >= {s['emergency_thi']} (emergency): fans forced to 100%")
-
+ 
     warnings = []
     flag = model.standing_flag(thi, z["lying"]) if z["cows_present"] else None
     if flag:
@@ -194,8 +194,8 @@ def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
         "air_speed_measured": all(amap.measured[q] for q in z["quadrants"]),
         "overrides": overrides, "warnings": warnings,
     }
-
-
+ 
+ 
 def decide(model, cfg, amap, goal, readings, inputs, stale=False, warnings=None):
     """readings = output of resolve_readings (one per quadrant); inputs = output of zone_inputs.
     goal = {"target_rise_c", "min_duty_pct", ...}. stale=True -> no sensor answering: failsafe.
@@ -203,14 +203,14 @@ def decide(model, cfg, amap, goal, readings, inputs, stale=False, warnings=None)
     nf = n_fans(cfg)
     rec = {"timestamp": datetime.now().isoformat(timespec="seconds"), "goal": dict(goal),
            "calibrated": amap.all_measured, "overrides": [], "warnings": list(warnings or [])}
-
+ 
     if stale or not model.ready:
         why = (f"No valid sensor readings for {cfg['safety']['stale_data_s']} s" if stale
                else "No body temperature model (run train_realcow.py)")
         rec.update(areas=[], rise_c=None, thi_eff=None, fan_duty_pct=[100.0] * nf, safety_status="Safe with Override")
         rec["overrides"].append(f"{why} -> fans 100% (failsafe)")
         return rec
-
+ 
     results = []
     for a in cfg["areas"]:
         z = inputs[a["name"]]
@@ -225,7 +225,7 @@ def decide(model, cfg, amap, goal, readings, inputs, stale=False, warnings=None)
         best.update(quadrants_used=z["quadrants"],
                     air_speed_measured=all(amap.measured[q] for q in z["quadrants"]))
         results.append(best)
-
+ 
     duties = [0.0] * nf
     for r in results:
         for f in r["fans"]:
@@ -237,8 +237,8 @@ def decide(model, cfg, amap, goal, readings, inputs, stale=False, warnings=None)
                rise_c=worst["rise_c"], thi_eff=worst["thi_eff"], thi=worst["thi_ambient"],
                safety_status="Safe with Override" if rec["overrides"] else "Safe")
     return rec
-
-
+ 
+ 
 def fan_curve(model, cfg, amap, temp_c, rh, z, duties=(0, 7, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100)):
     """Small table for the check page: what each fan speed would do in one zone."""
     lo = float(cfg["fans"]["min_duty_pct"])
@@ -247,3 +247,4 @@ def fan_curve(model, cfg, amap, temp_c, rh, z, duties=(0, 7, 10, 20, 30, 40, 50,
     return [{"fan_pct": float(d), "air_speed_m_s": round(float(v), 2), "thi_eff": round(float(t), 1),
              "rise_c": round(float(r), 3)}
             for d, v, t, r in zip(tab["duty"], tab["air_speed"], tab["thi_eff"], tab["rise"])]
+ 
