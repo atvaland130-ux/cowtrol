@@ -195,6 +195,9 @@ class Controller:
             return
         if sid not in self.sensors:
             return                                    # a sensor no area uses
+        off = (self.cfg.get("sensor_offsets") or {}).get(sid) or {}
+        t = t + float(off.get("temp_c", 0.0))          # HOBO-derived calibration (config sensor_offsets)
+        h = min(100.0, max(0.0, h + float(off.get("rh_pct", 0.0))))
         if not self.guard.add(sid, t, h):              # out-of-range: a fault, not just ignored
             self.event(f"Out-of-range reading from sensor {sid}: {t} C, {h}% RH")
             return
