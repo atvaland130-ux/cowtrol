@@ -162,7 +162,7 @@ vision:
   # The barn floor's 4 corners IN THE IMAGE (pixels), order [near-left, near-right, far-right, far-left];
   # NEAR = row closest to the fans (Q1/Q4), LEFT = the Q1-Q3 side. PLACEHOLDER = whole 640x480 frame,
   # axis-aligned — REPLACE after mounting using calibrate_vision.py.
-  floor_quad_px: [[0, 480], [640, 480], [640, 0], [0, 0]]
+  floor_quad_px: [[0, 480], [640, 220], [339, 0], [10, 57]]
   barn_wh_m: [0.4572, 0.762]         # real floor size [width (left-right), length (near-far)] in metres — MEASURE and set
   quadrant_grid:                # which quadrant each (column, row) cell is; matches `areas`
     left:  {near: Q1, mid: Q2, far: Q3}
