@@ -63,6 +63,17 @@ quadrant_sensors: {Q1: 3, Q2: 2, Q3: 1, Q4: 6, Q5: 5, Q6: 4}
 # For bench testing with ONE sensor for the whole barn, swap in:
 # quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
  
+# Calibration offsets ADDED to each sensor's reading (key = sensor id the Arduino reports; id 1..6 = mux ch 0,1,2,5,6,7).
+# From the Nov 16-17 2026 barn co-location test vs a HOBO U23-001 (offset = minus the mean sensor-HOBO bias).
+# Only verified at 21-22 C / 24-29 %RH. Delete this block or set values to 0 to disable.
+sensor_offsets:
+  1: {temp_c: 0.18,  rh_pct: -0.19}   # mux ch 0
+  2: {temp_c: 0.21,  rh_pct: -1.61}   # mux ch 1
+  3: {temp_c: 0.11,  rh_pct: -2.30}   # mux ch 2
+  4: {temp_c: -0.07, rh_pct: -2.95}   # mux ch 5
+  5: {temp_c: -0.11, rh_pct: -1.41}   # mux ch 6
+  6: {temp_c: -0.08, rh_pct: -2.35}   # mux ch 7
+ 
 # A side with no cows (camera / manual inputs) turns its fans off. Input faults still force 100 %.
 empty_zone:
   thi_rules: none               # none = off at any THI | emergency = still 100 % at emergency_thi | all = keep every THI rule
@@ -152,7 +163,7 @@ vision:
   # NEAR = row closest to the fans (Q1/Q4), LEFT = the Q1-Q3 side. PLACEHOLDER = whole 640x480 frame,
   # axis-aligned — REPLACE after mounting using calibrate_vision.py.
   floor_quad_px: [[0, 480], [640, 480], [640, 0], [0, 0]]
-  barn_wh_m: [18.0, 30.0]         # real floor size [width (left-right), length (near-far)] in metres — MEASURE and set
+  barn_wh_m: [0.4572, 0.762]         # real floor size [width (left-right), length (near-far)] in metres — MEASURE and set
   quadrant_grid:                # which quadrant each (column, row) cell is; matches `areas`
     left:  {near: Q1, mid: Q2, far: Q3}
     right: {near: Q4, mid: Q5, far: Q6}
