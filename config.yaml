@@ -1,7 +1,7 @@
 # Cowtrol Systems configuration (body-temperature model version)
  
 serial:
-  port: /dev/serial/by-id/usb-Arduino_UNO_WiFi_R4_CMSIS-DAP_F0F5BD4F4D8C-if01        # Arduino Uno R4 WiFi over USB (check with: ls /dev/ttyACM* /dev/ttyUSB*)
+  port: /dev/ttyACM0        # Arduino Uno R4 WiFi over USB (check with: ls /dev/ttyACM* /dev/ttyUSB*)
   baud: 9600
  
 # ---------------- Model: predicted cow body temperature (CBT) rise ----------------
@@ -24,7 +24,7 @@ heat_load:
   solar:                    # radiation term of Mader et al. (2006) adjusted THI: + 0.0068 THI per W/m2
     thi_per_wm2: 0.0068     # (from feedlot cattle; the only published per-W/m2 THI term we found)
   clustering:               # physics estimate of neighbours' body heat. OFF: the model learned clustering from
-    enabled: true          # MmCows directly. Set true to add it on top (it shrinks as air speed rises).
+    enabled: false          # MmCows directly. Set true to add it on top (it shrinks as air speed rises).
     sensible_heat_w: 500
     shared_air_area_m2: 3.0
     min_air_speed_m_s: 0.2
@@ -59,7 +59,7 @@ areas:
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
 # One sensor per quadrant (6 SHT45s behind the TCA9548A mux; sensor id = mux channel + 1). A failed/silent
 # sensor borrows its side's average, so flaky wiring degrades gracefully.
-quadrant_sensors: {Q1: 3, Q2: 2, Q3: 1, Q4: 6, Q5: 5, Q6: 4}
+quadrant_sensors: {Q1: 3, Q2: 2, Q3: 1, Q4: 6, Q5: 5, Q6: 4}   # Alex's wiring 2026-11-17: sensor id -> quadrant (ch0->Q3, ch1->Q2, ch2->Q1, ch5->Q6, ch6->Q5, ch7->Q4)
 # For bench testing with ONE sensor for the whole barn, swap in:
 # quadrant_sensors: {Q1: 1, Q2: 1, Q3: 1, Q4: 1, Q5: 1, Q6: 1}
  
@@ -84,6 +84,24 @@ fans:
 airspeed_map:
   file: airspeed_map.csv        # your measurements: quadrant, fan_pct, point, air_speed_m_s (copy from data_templates/)
   placeholder_max_air_speed_m_s: 2.0   # straight line 0 -> this at 100 %, used for quadrants not measured yet
+ 
+# ---------------- Control law (how the model's predicted rise sets the fan) ----------------
+# optimizer (default): run the LOWEST fan speed that keeps predicted rise under goal.target_rise_c.
+#                      Energy-minimal; fans sit low then ramp up near the stress line (threshold-like).
+# proportional:        set the fan IN PROPORTION to the predicted rise - from rise_floor_c (cows at their
+#                      cool baseline) up to rise_full_c (heat-stress onset). The target is an AIR SPEED, so
+#                      a weak-airflow quadrant runs a higher fan % to reach the same breeze (uses the
+#                      measured airspeed_map). Preventative + smooth, and it ramps across a wide range of
+#                      THI / clustering / lying / time; it runs more fan energy because it cools earlier.
+#                      Both laws agree at the ends (floor when cool, full at the stress line); they differ
+#                      only in the middle. Hard safety rules still apply on top of either law.
+control:
+  mode: optimizer               # optimizer | proportional
+  proportional:
+    rise_floor_c: 0.0           # predicted rise where fans sit at floor_duty (0 = herd at baseline 38.6 C)
+    rise_full_c: 0.20           # predicted rise where fans reach target_air_full_m_s (stress onset = 38.8 - 38.6)
+    target_air_full_m_s: 2.0    # cooling air speed aimed for at rise_full_c (4.5 mph, mid Penn State 3.5-5 mph)
+    floor_duty_pct: 35          # fan floor at/below rise_floor_c (set 0 to switch fans fully off when cool)
  
 # ---------------- Operator goal ----------------
 # The fan runs at the LOWEST speed that keeps the predicted body temperature rise under target_rise_c,
@@ -113,14 +131,18 @@ goal:
  
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
-  emergency_thi: 100           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
-  stress_onset_thi: 100        # ambient THI >= this -> air-speed floor applies (Penn State, UMN)
+  enabled: true               # false = disable the hard safety overrides (THI ramp + emergency, and the
+                              #         sensor-fault / out-of-range -> 100% failsafe) so the model's raw decision
+                              #         drives the fans. The "no sensor data at all" guard stays on (the model
+                              #         needs a temperature to run). BENCH/DEMO ONLY - never run real cows off.
+  emergency_thi: 80           # ambient THI >= this -> fans 100% (UMN Extension "moderate-severe")
+  stress_onset_thi: 68        # ambient THI >= this -> air-speed floor applies (Penn State, UMN)
   min_air_speed_m_s: 1.56     # 3.5 mph, low end of Penn State's preferred 3.5-5 mph (floor at ramp_full_thi)
   # Lever A: ramp the floor up across the onset band instead of a hard step at stress_onset_thi.
   # Required floor rises linearly from floor_start_m_s @ stress_onset_thi to min_air_speed_m_s @ ramp_full_thi.
   # Set ramp_full_thi == stress_onset_thi (or floor_start_m_s == min_air_speed_m_s) to restore the old hard step.
   floor_start_m_s: 0.7        # floor demanded right at stress_onset_thi (~35% fans in the measured map)
-  ramp_full_thi: 100           # THI at which the full min_air_speed_m_s floor is required
+  ramp_full_thi: 78           # THI at which the full min_air_speed_m_s floor is required
   stale_data_s: 120           # no valid readings this long -> fans 100%
   valid_temp_c: [-40, 80]     # DHT20 rated range; a reading outside is a sensor fault (fans 100%)
   valid_rh_pct: [0, 100]
@@ -135,7 +157,7 @@ safety_checks:
     flatline_minutes: 10        # temperature AND humidity both unchanged for this long...
     flatline_temp_c: 0.05       #   ...i.e. moved less than this
     flatline_rh_pct: 0.2
-    max_dev_from_median_c: 10.0  # more than this from the median of the other sensors (needs 3+ sensors)
+    max_dev_from_median_c: 3.0  # more than this from the median of the other sensors (needs 3+ sensors)
   camera:
     enabled: false              # true once the camera is connected
     source: picamera2           # picamera2 (Pi camera module) or usb
@@ -150,6 +172,17 @@ safety_checks:
 # OFF until the camera is MOUNTED and calibrated: floor_quad_px and barn_wh_m both depend on
 # the final camera position. Run calibrate_vision.py after mounting to set them.
 vision:
+  enabled: false                # true once mounted + calibrated
+  model_path: best.pt           # fine-tuned weights on the Pi
+  conf: 0.5                     # detection threshold (match what looked right in demo.py)
+  imgsz: 320
+  frame_w: 640
+  frame_h: 480
+  ground_point: center          # center (overhead view) or bottom (oblique/corner view)
+  cluster_radius_m: 0.10        # model barn: one 4in model-cow length (scales the 2.5 m training radius)
+  lying_class_contains: lying   # class names whose text contains this count as lying
+  # Hand-placed quadrant CENTRES in the image (pixels), from calibrate_live.py. When present, the model uses
+  # nearest-centre classification (robust to a corner mount / lens distortion) instead of floor_quad_px.
   quadrant_centers_px:
     Q1: [306, 383]
     Q2: [154, 148]
@@ -157,20 +190,11 @@ vision:
     Q4: [567, 218]
     Q5: [342, 65]
     Q6: [277, 13]
-  enabled: true                # true once mounted + calibrated
-  model_path: best.pt           # fine-tuned weights on the Pi
-  conf: 0.5                     # detection threshold (match what looked right in demo.py)
-  imgsz: 320
-  frame_w: 640
-  frame_h: 480
-  ground_point: center          # center (overhead view) or bottom (oblique/corner view)
-  cluster_radius_m: 2.5         # "within 2.5 m" = one cow length (same as the model's training)
-  lying_class_contains: lying   # class names whose text contains this count as lying
   # The barn floor's 4 corners IN THE IMAGE (pixels), order [near-left, near-right, far-right, far-left];
   # NEAR = row closest to the fans (Q1/Q4), LEFT = the Q1-Q3 side. PLACEHOLDER = whole 640x480 frame,
   # axis-aligned — REPLACE after mounting using calibrate_vision.py.
-  floor_quad_px: [[0, 480], [640, 220], [339, 0], [10, 57]]
-  barn_wh_m: [0.4572, 0.762]         # real floor size [width (left-right), length (near-far)] in metres — MEASURE and set
+  floor_quad_px: [[0, 480], [640, 480], [640, 0], [0, 0]]
+  barn_wh_m: [0.4572, 0.762]    # model barn floor [width (left-right), length (near-far)] m = 18 x 30 in
   quadrant_grid:                # which quadrant each (column, row) cell is; matches `areas`
     left:  {near: Q1, mid: Q2, far: Q3}
     right: {near: Q4, mid: Q5, far: Q6}
