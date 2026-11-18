@@ -136,18 +136,25 @@ def required_air_floor(s, thi):
     return start + (full - start) * frac
  
  
-def proportional_index(cfg, tab):
+def proportional_index(cfg, tab, goal=None):
     """Smart-proportional fan pick: map the fans-off predicted rise (the heat demand) to a target air
     speed, then use the measured air-speed curve to find the fan % that delivers it - so a weak-airflow
     zone runs a higher % to reach the same breeze. Returns an index into tab['duty'].
  
     demand(rise at 0 fans) -> frac in [0,1] over [rise_floor_c, rise_full_c] -> target air speed
-    (frac * target_air_full_m_s) -> inverse of the measured air-speed map -> fan %. Floor applies."""
+    (frac * target_air_full_m_s) -> inverse of the measured air-speed map -> fan %. Floor applies.
+ 
+    The operator goal (set by the LLM / dashboard) drives this exactly like it drives the optimizer:
+    goal['target_rise_c'] is the rise where fans reach full cooling (rise_full_c) - "cool harder" lowers
+    it so the whole ramp shifts down - and goal['min_duty_pct'] raises the fan floor."""
     p = cfg.get("control", {}).get("proportional", {})
     r_lo = float(p.get("rise_floor_c", 0.0))
-    r_hi = float(p.get("rise_full_c", 0.20))
+    # the operator goal's target_rise_c is the "full cooling" point; fall back to the static anchor
+    r_hi = float(goal["target_rise_c"]) if goal and "target_rise_c" in goal else float(p.get("rise_full_c", 0.20))
     air_full = float(p.get("target_air_full_m_s", 2.0))
     floor_duty = float(p.get("floor_duty_pct", cfg["fans"]["min_duty_pct"]))
+    if goal and goal.get("min_duty_pct"):                  # operator can raise the floor, same as the optimizer
+        floor_duty = max(floor_duty, float(goal["min_duty_pct"]))
     demand = float(tab["rise"][0])                         # predicted rise with fans off = heat load
     frac = 0.0 if r_hi <= r_lo else (demand - r_lo) / (r_hi - r_lo)
     frac = min(max(frac, 0.0), 1.0)
@@ -166,7 +173,7 @@ def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
     # 4. the model's fan pick: optimizer (lowest fan whose predicted rise is under target) OR
     #    proportional (fan set in proportion to the predicted rise). Safety rules apply after either.
     if cfg.get("control", {}).get("mode", "optimizer") == "proportional":
-        ml_i = proportional_index(cfg, tab)
+        ml_i = proportional_index(cfg, tab, goal)
     else:
         allowed = tab["duty"] >= goal["min_duty_pct"] - 1e-9
         ok = allowed & (tab["rise"] <= goal["target_rise_c"])
