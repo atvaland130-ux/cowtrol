@@ -136,24 +136,49 @@ def required_air_floor(s, thi):
     return start + (full - start) * frac
  
  
+def proportional_index(cfg, tab):
+    """Smart-proportional fan pick: map the fans-off predicted rise (the heat demand) to a target air
+    speed, then use the measured air-speed curve to find the fan % that delivers it - so a weak-airflow
+    zone runs a higher % to reach the same breeze. Returns an index into tab['duty'].
+ 
+    demand(rise at 0 fans) -> frac in [0,1] over [rise_floor_c, rise_full_c] -> target air speed
+    (frac * target_air_full_m_s) -> inverse of the measured air-speed map -> fan %. Floor applies."""
+    p = cfg.get("control", {}).get("proportional", {})
+    r_lo = float(p.get("rise_floor_c", 0.0))
+    r_hi = float(p.get("rise_full_c", 0.20))
+    air_full = float(p.get("target_air_full_m_s", 2.0))
+    floor_duty = float(p.get("floor_duty_pct", cfg["fans"]["min_duty_pct"]))
+    demand = float(tab["rise"][0])                         # predicted rise with fans off = heat load
+    frac = 0.0 if r_hi <= r_lo else (demand - r_lo) / (r_hi - r_lo)
+    frac = min(max(frac, 0.0), 1.0)
+    target_air = frac * air_full                           # heat demand -> target air speed (absolute)
+    duty = float(np.interp(target_air, tab["air_speed"], tab["duty"]))   # measured map: air speed -> fan %
+    duty = floor_duty if frac <= 0.0 else max(duty, floor_duty)
+    return int(np.argmin(np.abs(tab["duty"] - duty)))
+ 
+ 
 def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
     s = cfg["safety"]
     tab = rise_table(model, cfg, amap, temp_c, rh, z)
     thi = float(tab["thi_ambient"][0])
     overrides, last = [], len(tab["duty"]) - 1
  
-    # 4. lowest fan speed (at or above the goal's minimum) whose predicted rise is under the target
-    allowed = tab["duty"] >= goal["min_duty_pct"] - 1e-9
-    ok = allowed & (tab["rise"] <= goal["target_rise_c"])
-    reached = bool(ok.any())
-    ml_i = int(np.argmax(ok)) if reached else last
+    # 4. the model's fan pick: optimizer (lowest fan whose predicted rise is under target) OR
+    #    proportional (fan set in proportion to the predicted rise). Safety rules apply after either.
+    if cfg.get("control", {}).get("mode", "optimizer") == "proportional":
+        ml_i = proportional_index(cfg, tab)
+    else:
+        allowed = tab["duty"] >= goal["min_duty_pct"] - 1e-9
+        ok = allowed & (tab["rise"] <= goal["target_rise_c"])
+        ml_i = int(np.argmax(ok)) if ok.any() else last
     rules = "all"
     if not z["cows_present"]:                      # nobody to cool
         ml_i, rules = 0, cfg.get("empty_zone", {}).get("thi_rules", "none")
     i = ml_i
  
-    # 5. hard safety rules
-    if rules == "all" and thi >= s["stress_onset_thi"]:
+    # 5. hard safety rules (set safety.enabled: false to disable the THI backstop for model-only tests/demos)
+    safety_on = s.get("enabled", True)
+    if safety_on and rules == "all" and thi >= s["stress_onset_thi"]:
         floor = required_air_floor(s, thi)                 # ramps with THI (lever A), or a hard step if unconfigured
         enough = tab["air_speed"] >= floor - 1e-9
         if not enough.any():
@@ -165,7 +190,7 @@ def decide_area(model, cfg, amap, area, temp_c, rh, z, goal):
             i = int(np.argmax(enough))
             overrides.append(f"THI {thi:.1f} >= {s['stress_onset_thi']}: air speed raised to the "
                              f"{floor:.2f} m/s minimum for this THI")
-    if rules in ("all", "emergency") and thi >= s["emergency_thi"] and tab["duty"][i] < 100:
+    if safety_on and rules in ("all", "emergency") and thi >= s["emergency_thi"] and tab["duty"][i] < 100:
         i = last
         overrides.append(f"THI {thi:.1f} >= {s['emergency_thi']} (emergency): fans forced to 100%")
  
@@ -204,8 +229,8 @@ def decide(model, cfg, amap, goal, readings, inputs, stale=False, warnings=None)
     rec = {"timestamp": datetime.now().isoformat(timespec="seconds"), "goal": dict(goal),
            "calibrated": amap.all_measured, "overrides": [], "warnings": list(warnings or [])}
  
-    if stale or not model.ready:
-        why = (f"No valid sensor readings for {cfg['safety']['stale_data_s']} s" if stale
+    if stale or not model.ready:          # no sensor data at all (or no model) -> the model cannot run; this
+        why = (f"No valid sensor readings for {cfg['safety']['stale_data_s']} s" if stale   # guard stays on
                else "No body temperature model (run train_realcow.py)")
         rec.update(areas=[], rise_c=None, thi_eff=None, fan_duty_pct=[100.0] * nf, safety_status="Safe with Override")
         rec["overrides"].append(f"{why} -> fans 100% (failsafe)")
