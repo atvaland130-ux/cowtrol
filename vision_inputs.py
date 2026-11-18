@@ -250,6 +250,7 @@ class VisionInputs:
         per_quad = {}           # quadrant -> [lying bools]
         summary = {}            # quadrant -> {n, conf(%), lying} for the dashboard
         det = []                # per-cow boxes for the camera overlay
+        links = []              # pixel segments between cows within the clustering radius
         h, w = frame.shape[:2]
         if len(pts):
             quads, metres = self.qmap.assign(pts)
@@ -262,6 +263,13 @@ class VisionInputs:
                 e["lying"] += 1 if is_lying else 0
                 det.append({"xyxy": box, "q": q, "conf": round(float(cf) * 100),
                             "lying": bool(is_lying)})
+            if len(pts) >= 2:                                   # draw a line for each within-radius pair
+                dm = np.linalg.norm(metres[:, None, :] - metres[None, :, :], axis=2)
+                for i in range(len(pts)):
+                    for j in range(i + 1, len(pts)):
+                        if dm[i, j] <= self.radius_m:
+                            links.append([[round(float(pts[i][0])), round(float(pts[i][1]))],
+                                          [round(float(pts[j][0])), round(float(pts[j][1]))]])
  
         out = {}
         for a in self.areas:
@@ -273,6 +281,6 @@ class VisionInputs:
             out[a["name"]] = zone
         self.last = {"cows": int(len(pts)), "error": None,
                      "clustering": round(clustering, 2), "per_quad": summary,
-                     "boxes": det, "frame_wh": [int(w), int(h)]}
+                     "boxes": det, "links": links, "frame_wh": [int(w), int(h)]}
         return out
  
