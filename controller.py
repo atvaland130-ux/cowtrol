@@ -409,6 +409,8 @@ def make_app(ctl, cfg):
                            areas=[{"name": a["name"], "fans": a["fans"], "quadrants": a["quadrants"]}
                                   for a in cfg["areas"]],
                            camera_inputs=ctl.vision is not None,   # True when the camera feeds the model
+                           vision=(ctl.vision.last if ctl.vision else None),  # cows/quadrant + confidence
+                           mode=cfg.get("control", {}).get("mode", "optimizer"),
                            llm_host=llm.host, llm_online=llm_status(),
                            seconds_since_valid=round(time.time() - ctl.last_valid),
                            faults=ctl.faults, camera=ctl.camera_status,
