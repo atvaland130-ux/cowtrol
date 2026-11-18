@@ -96,10 +96,10 @@ airspeed_map:
 #                      Both laws agree at the ends (floor when cool, full at the stress line); they differ
 #                      only in the middle. Hard safety rules still apply on top of either law.
 control:
-  mode: optimizer               # optimizer | proportional
+  mode: proportional               # optimizer | proportional
   proportional:
     rise_floor_c: 0.0           # predicted rise where fans sit at floor_duty (0 = herd at baseline 38.6 C)
-    rise_full_c: 0.20           # predicted rise where fans reach target_air_full_m_s (stress onset = 38.8 - 38.6)
+    rise_full_c: 0.20           # fallback "full cooling" rise; the operator goal's target_rise_c (LLM/dashboard) overrides this live
     target_air_full_m_s: 2.0    # cooling air speed aimed for at rise_full_c (4.5 mph, mid Penn State 3.5-5 mph)
     floor_duty_pct: 35          # fan floor at/below rise_floor_c (set 0 to switch fans fully off when cool)
  
@@ -131,7 +131,7 @@ goal:
  
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
-  enabled: true               # false = disable the hard safety overrides (THI ramp + emergency, and the
+  enabled: false               # false = disable the hard safety overrides (THI ramp + emergency, and the
                               #         sensor-fault / out-of-range -> 100% failsafe) so the model's raw decision
                               #         drives the fans. The "no sensor data at all" guard stays on (the model
                               #         needs a temperature to run). BENCH/DEMO ONLY - never run real cows off.
@@ -172,7 +172,7 @@ safety_checks:
 # OFF until the camera is MOUNTED and calibrated: floor_quad_px and barn_wh_m both depend on
 # the final camera position. Run calibrate_vision.py after mounting to set them.
 vision:
-  enabled: false                # true once mounted + calibrated
+  enabled: true                # true once mounted + calibrated
   model_path: best.pt           # fine-tuned weights on the Pi
   conf: 0.5                     # detection threshold (match what looked right in demo.py)
   imgsz: 320
