@@ -146,21 +146,30 @@ def proportional_index(cfg, tab, goal=None):
  
     The operator goal (set by the LLM / dashboard) drives this exactly like it drives the optimizer:
     goal['target_rise_c'] is the rise where fans reach full cooling (rise_full_c) - "cool harder" lowers
-    it so the whole ramp shifts down - and goal['min_duty_pct'] raises the fan floor."""
+    it so the whole ramp shifts down - and goal['min_duty_pct'] raises the fan floor.
+ 
+    idle_off (config control.proportional.idle_off): when there is NO cooling demand (the herd is at or
+    below the rise_floor_c line, i.e. not warm), turn the fans fully OFF (0%) instead of idling at the
+    running floor. Once any demand appears the fans still start at floor_duty_pct (the dimmer cut-in, so
+    they actually spin) and ramp up. An operator-set min_duty_pct overrides idle_off (a requested minimum
+    is kept even when cool)."""
     p = cfg.get("control", {}).get("proportional", {})
     r_lo = float(p.get("rise_floor_c", 0.0))
     # the operator goal's target_rise_c is the "full cooling" point; fall back to the static anchor
     r_hi = float(goal["target_rise_c"]) if goal and "target_rise_c" in goal else float(p.get("rise_full_c", 0.20))
     air_full = float(p.get("target_air_full_m_s", 2.0))
-    floor_duty = float(p.get("floor_duty_pct", cfg["fans"]["min_duty_pct"]))
-    if goal and goal.get("min_duty_pct"):                  # operator can raise the floor, same as the optimizer
-        floor_duty = max(floor_duty, float(goal["min_duty_pct"]))
+    run_floor = float(p.get("floor_duty_pct", cfg["fans"]["min_duty_pct"]))  # lowest RUNNING speed (cut-in)
+    operator_min = bool(goal and goal.get("min_duty_pct"))
+    if operator_min:                                       # operator can raise the floor, same as the optimizer
+        run_floor = max(run_floor, float(goal["min_duty_pct"]))
+    # when cool (no demand): fully off if idle_off and the operator hasn't asked for a minimum, else the floor
+    idle_duty = 0.0 if (p.get("idle_off", False) and not operator_min) else run_floor
     demand = float(tab["rise"][0])                         # predicted rise with fans off = heat load
     frac = 0.0 if r_hi <= r_lo else (demand - r_lo) / (r_hi - r_lo)
     frac = min(max(frac, 0.0), 1.0)
     target_air = frac * air_full                           # heat demand -> target air speed (absolute)
     duty = float(np.interp(target_air, tab["air_speed"], tab["duty"]))   # measured map: air speed -> fan %
-    duty = floor_duty if frac <= 0.0 else max(duty, floor_duty)
+    duty = idle_duty if frac <= 0.0 else max(duty, run_floor)
     return int(np.argmin(np.abs(tab["duty"] - duty)))
  
  
