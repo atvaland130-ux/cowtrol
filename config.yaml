@@ -96,12 +96,13 @@ airspeed_map:
 #                      Both laws agree at the ends (floor when cool, full at the stress line); they differ
 #                      only in the middle. Hard safety rules still apply on top of either law.
 control:
-  mode: proportional               # optimizer | proportional
+  mode: proportional            # optimizer | proportional
   proportional:
     rise_floor_c: 0.0           # predicted rise where fans sit at floor_duty (0 = herd at baseline 38.6 C)
     rise_full_c: 0.20           # fallback "full cooling" rise; the operator goal's target_rise_c (LLM/dashboard) overrides this live
     target_air_full_m_s: 2.0    # cooling air speed aimed for at rise_full_c (4.5 mph, mid Penn State 3.5-5 mph)
-    floor_duty_pct: 35          # fan floor at/below rise_floor_c (set 0 to switch fans fully off when cool)
+    floor_duty_pct: 35          # lowest RUNNING fan speed once there is any cooling demand (dimmer cut-in; nothing spins below ~35)
+    idle_off: true              # when the herd is at/below rise_floor_c (not warm), switch fans fully OFF instead of idling at the floor
  
 # ---------------- Operator goal ----------------
 # The fan runs at the LOWEST speed that keeps the predicted body temperature rise under target_rise_c,
@@ -131,7 +132,7 @@ goal:
  
 # ---------------- Hard safety rules (applied AFTER the model; they always win) ----------------
 safety:
-  enabled: false               # false = disable the hard safety overrides (THI ramp + emergency, and the
+  enabled: false              # false = disable the hard safety overrides (THI ramp + emergency, and the
                               #         sensor-fault / out-of-range -> 100% failsafe) so the model's raw decision
                               #         drives the fans. The "no sensor data at all" guard stays on (the model
                               #         needs a temperature to run). BENCH/DEMO ONLY - never run real cows off.
@@ -157,9 +158,9 @@ safety_checks:
     flatline_minutes: 10        # temperature AND humidity both unchanged for this long...
     flatline_temp_c: 0.05       #   ...i.e. moved less than this
     flatline_rh_pct: 0.2
-    max_dev_from_median_c: 20  # more than this from the median of the other sensors (needs 3+ sensors)
+    max_dev_from_median_c: 30.0  # more than this from the median of the other sensors (needs 3+ sensors)
   camera:
-    enabled: false              # true once the camera is connected
+    enabled: true              # true once the camera is connected
     source: picamera2           # picamera2 (Pi camera module) or usb
     usb_index: 0
     min_brightness: 15          # mean brightness 0-255 below this = blocked
@@ -172,7 +173,7 @@ safety_checks:
 # OFF until the camera is MOUNTED and calibrated: floor_quad_px and barn_wh_m both depend on
 # the final camera position. Run calibrate_vision.py after mounting to set them.
 vision:
-  enabled: true                # true once mounted + calibrated
+  enabled: true                 # true once mounted + calibrated
   model_path: best.pt           # fine-tuned weights on the Pi
   conf: 0.5                     # detection threshold (match what looked right in demo.py)
   imgsz: 320
@@ -200,7 +201,7 @@ vision:
     right: {near: Q4, mid: Q5, far: Q6}
  
 loop:
-  decision_interval_s: 10   # sensor readings are averaged over this window
+  decision_interval_s: 5   # sensor readings are averaged over this window
   log_csv: logs/decisions.csv
   log_jsonl: logs/decisions.jsonl   # full records
  
