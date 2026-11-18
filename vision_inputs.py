@@ -209,7 +209,7 @@ class VisionInputs:
     # --- one detection pass -------------------------------------------------
     def _ground_points_and_classes(self, frame):
         res = self.model.predict(frame, imgsz=self.imgsz, conf=self.conf, verbose=False)[0]
-        pts, lying = [], []
+        pts, lying, conf = [], [], []
         for b in res.boxes:
             x1, y1, x2, y2 = (float(t) for t in b.xyxy[0])
             cx = (x1 + x2) / 2
@@ -217,7 +217,9 @@ class VisionInputs:
             pts.append((cx, cy))
             name = str(self.names[int(b.cls[0])]).lower()
             lying.append(self.lying_token in name)
-        return np.array(pts, dtype="float32"), np.array(lying, dtype=bool)
+            conf.append(float(b.conf[0]))
+        return (np.array(pts, dtype="float32"), np.array(lying, dtype=bool),
+                np.array(conf, dtype="float32"))
  
     def _clustering(self, metres):
         """Average number of OTHER cows within radius_m of each cow (0 if <2 cows)."""
@@ -238,18 +240,23 @@ class VisionInputs:
             self.last = {"cows": 0, "error": "no frame"}
             return None
         try:
-            pts, lying = self._ground_points_and_classes(frame)
+            pts, lying, conf = self._ground_points_and_classes(frame)
         except Exception as e:                                  # bad model / frame -> fall back to manual
             self.last = {"cows": 0, "error": f"detect failed: {e}"}
             return None
  
         clustering = 0.0
         per_quad = {}           # quadrant -> [lying bools]
+        summary = {}            # quadrant -> {n, conf(%), lying} for the dashboard
         if len(pts):
             quads, metres = self.qmap.assign(pts)
             clustering = self._clustering(metres)
-            for q, is_lying in zip(quads, lying):
+            for q, is_lying, cf in zip(quads, lying, conf):
                 per_quad.setdefault(q, []).append(bool(is_lying))
+                e = summary.setdefault(q, {"n": 0, "conf": 0, "lying": 0})
+                e["n"] += 1
+                e["conf"] = max(e["conf"], round(float(cf) * 100))
+                e["lying"] += 1 if is_lying else 0
  
         out = {}
         for a in self.areas:
@@ -259,6 +266,7 @@ class VisionInputs:
             if flags:                                           # only report lying when cows are seen here
                 zone["lying"] = sum(flags) / len(flags)
             out[a["name"]] = zone
-        self.last = {"cows": int(len(pts)), "error": None}
+        self.last = {"cows": int(len(pts)), "error": None,
+                     "clustering": round(clustering, 2), "per_quad": summary}
         return out
  
