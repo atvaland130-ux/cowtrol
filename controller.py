@@ -264,7 +264,7 @@ class Controller:
         if msg:
             self.event(msg)
         rec["faults"] = list(faults)
-        if faults:
+        if faults and self.cfg["safety"].get("enabled", True):
             rec["fan_duty_pct"] = [100.0] * n_fans
             rec["overrides"].insert(0, "Input fault -> fans 100% (fail-safe): " + "; ".join(faults))
             rec["safety_status"] = "FAULT: fans 100%"
