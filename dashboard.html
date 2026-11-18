@@ -96,7 +96,10 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
   <!-- CAMERA + VISION -->
   <section class="card">
     <h2>Camera vision</h2>
-    <img id="camImg" class="cam" alt="Live camera">
+    <div style="position:relative;line-height:0">
+      <img id="camImg" class="cam" alt="Live camera">
+      <canvas id="camCv" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+    </div>
     <div class="lbl" id="camNote" style="margin-top:6px">Connecting…</div>
     <div id="visionList" style="margin-top:8px"></div>
   </section>
@@ -134,19 +137,15 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
     <form id="hostForm" style="margin-top:8px"><input id="host" class="grow" placeholder="LLM host http://ip:11434"><button>Set</button></form>
   </section>
  
-  <!-- INPUTS (manual stand-ins / solar) -->
+  <!-- INPUTS (solar + clock; camera feeds the rest) -->
   <section class="card">
     <h2>Inputs</h2>
-    <div class="lbl" id="inNote"></div>
+    <div class="lbl">Solar has no sensor; blank clock uses the Pi's real time. Cows, clustering and lying come from the camera.</div>
     <form id="manForm" class="fields" style="margin-top:8px">
       <label>Solar (W/m²)<input id="mS" inputmode="decimal"></label>
-      <label>Clustering<input id="mN" inputmode="decimal"></label>
-      <label>Lying (0–1)<input id="mL" inputmode="decimal"></label>
       <label>Clock (0–23.9)<input id="mH" inputmode="decimal" placeholder="real time"></label>
       <button>Apply</button>
     </form>
-    <div class="btns"><button type="button" data-lie="1">All lying</button><button type="button" data-lie="0.5">Half</button><button type="button" data-lie="0">All standing</button></div>
-    <div class="quads" id="quads"></div>
     <div class="err" id="manErr"></div>
     <div id="simBox" style="display:none;margin-top:10px">
       <div class="lbl">Test faults (simulation)</div>
@@ -222,13 +221,19 @@ function drawBarn(s, d){
   }).join("");
   $("barn").innerHTML = `<div class="lead wide" style="grid-column:1/-1">far end</div>${html}<div class="lead wide" style="grid-column:1/-1">fans</div>`;
 }
-function drawQuads(areas, cam){
-  const cols = areas.map(a => a.quadrants.slice().reverse());
-  let h="";
-  for(let r=0;r<cols[0].length;r++) for(const c of cols){ const q=c[r];
-    h += `<label class="${quadsSel.includes(q)?"on":""}"><input type="checkbox" data-q="${q}" ${quadsSel.includes(q)?"checked":""} ${cam?"disabled":""}>${q}</label>`; }
-  $("quads").style.gridTemplateColumns = `repeat(${cols.length},1fr)`;
-  $("quads").innerHTML = h;
+function drawBoxes(v){
+  const cv=$("camCv"), img=$("camImg"); if(!cv || !img.clientWidth) return;
+  cv.width=img.clientWidth; cv.height=img.clientHeight;
+  const ctx=cv.getContext("2d"); ctx.clearRect(0,0,cv.width,cv.height);
+  if(!v || !v.boxes || !v.frame_wh) return;
+  const [fw,fh]=v.frame_wh; const sx=cv.width/fw, sy=cv.height/fh;
+  ctx.lineWidth=2; ctx.font="12px system-ui,-apple-system,sans-serif";
+  v.boxes.forEach(b => { const [x1,y1,x2,y2]=b.xyxy;
+    const col = b.lying ? "#e0a13a" : "#37c871";
+    ctx.strokeStyle=col; ctx.strokeRect(x1*sx,y1*sy,(x2-x1)*sx,(y2-y1)*sy);
+    const t=`${b.q} ${b.conf}%`, tw=ctx.measureText(t).width+6;
+    ctx.fillStyle=col; ctx.fillRect(x1*sx, y1*sy-15, tw, 15);
+    ctx.fillStyle="#0b140e"; ctx.fillText(t, x1*sx+3, y1*sy-4); });
 }
  
 async function refresh(){
@@ -246,12 +251,8 @@ async function refresh(){
     const n=new Date(); $("cH").value = s.manual.clock_hour ?? (n.getHours()+Math.round(n.getMinutes()/6)/10).toFixed(1);
     setupDone=true;
   }
-  if(!manTyped){ $("mS").value=s.manual.solar_wm2; $("mH").value=s.manual.clock_hour ?? "";
-    $("mN").value = cam ? "camera" : s.manual.clustering; $("mL").value = cam ? "camera" : s.manual.lying; }
-  ["mN","mL"].forEach(id=>$(id).disabled=cam);
-  quadsSel = s.manual.occupied_quadrants; drawQuads(s.areas, cam);
-  $("inNote").textContent = cam ? "Camera feeds clustering, lying and which quadrants have cows. Solar and clock stay manual."
-    : "Stand-ins until the camera is on. Solar has no sensor. Blank clock = Pi time.";
+  if(!manTyped){ $("mS").value=s.manual.solar_wm2; $("mH").value=s.manual.clock_hour ?? ""; }
+  quadsSel = s.manual.occupied_quadrants;
  
   // sensors
   $("sensRows").innerHTML = s.sensors.map(x =>
@@ -304,6 +305,7 @@ async function refresh(){
   else if(v){ const pq = v.per_quad || {};
     const items = Object.keys(pq).sort().map(q => `<span class="pill ok" style="margin:2px 4px 2px 0">${q}: ${pq[q].n}🐄 ${pq[q].conf}%</span>`).join("");
     $("visionList").innerHTML = `<div class="lbl">${v.cows||0} cows detected</div><div style="margin-top:4px">${items || `<span class="lbl">none in view</span>`}</div>`; }
+  window._vision = cam ? v : null; drawBoxes(window._vision);
  
   // recent decisions
   $("rows").innerHTML = s.decisions.slice().reverse().map(d =>
@@ -316,17 +318,11 @@ async function refresh(){
 $("ovrForm").onsubmit = async e => { e.preventDefault(); $("ovrErr").textContent="";
   const r = await post("/api/override",{duty_pct:Number($("ovrDuty").value)}); if(r.error)$("ovrErr").textContent=r.error; refresh(); };
 $("ovrStop").onclick = () => post("/api/override",{stop:true}).then(refresh);
-["mS","mN","mL","mH"].forEach(id=>$(id).oninput=()=>manTyped=true);
+["mS","mH"].forEach(id=>$(id).oninput=()=>manTyped=true);
 const sendManual = async b => { $("manErr").textContent=""; const r=await post("/api/manual",b);
   if(r.error)$("manErr").textContent=r.error; manTyped=false; setTimeout(refresh,300); };
 $("manForm").onsubmit = e => { e.preventDefault(); const h=$("mH").value.trim();
-  const body = {solar_wm2:Number($("mS").value), clock_hour: h===""?null:Number(h)};
-  if(!$("mN").disabled) body.clustering=Number($("mN").value);
-  if(!$("mL").disabled) body.lying=Number($("mL").value);
-  sendManual(body); };
-document.querySelectorAll("[data-lie]").forEach(b=>b.onclick=()=>sendManual({lying:Number(b.dataset.lie)}));
-$("quads").onchange = e => { const q=e.target.dataset.q; if(!q)return;
-  const sel = e.target.checked ? [...quadsSel,q] : quadsSel.filter(x=>x!==q); sendManual({occupied_quadrants:sel}); };
+  sendManual({solar_wm2:Number($("mS").value), clock_hour: h===""?null:Number(h)}); };
 $("simBox").onclick = e => { const b=e.target.dataset; const body = b.sen?{sensor:b.sen}:b.bump?{thi_bump:Number(b.bump)}:null;
   if(body) post("/api/sim_fault",body).then(()=>setTimeout(refresh,1500)); };
 $("host").oninput=()=>hostTyped=true;
@@ -355,7 +351,8 @@ $("checkForm").onsubmit = async e => { e.preventDefault(); $("cErr").textContent
   $("cCurve").innerHTML = r.curve.map(c=>`<tr class="${c.fan_pct===a.fan_duty_pct?"pick":""}"><td>${c.fan_pct.toFixed(0)}%</td><td>${c.air_speed_m_s.toFixed(2)} m/s</td><td>${c.thi_eff.toFixed(1)}</td><td>${c2(c.rise_c)}</td></tr>`).join("");
 };
 const camImg = $("camImg");
-camImg.onload = () => { $("camNote").textContent = "Live (about 1 fps)."; };
+camImg.onload = () => { $("camNote").textContent = "Live (about 1 fps). Boxes refresh each model run."; drawBoxes(window._vision); };
+window.addEventListener("resize", () => drawBoxes(window._vision));
 camImg.onerror = () => { $("camNote").textContent = "No camera (or in use by the safety check)."; };
 setInterval(()=>{ camImg.src = "/camera.jpg?"+Date.now(); }, 1000);
 refresh(); setInterval(refresh, 2000);
