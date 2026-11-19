@@ -52,8 +52,8 @@ manual_inputs:
 # Air speed AND THI for a zone = the average over the quadrants that have cows in them
 # (all 3 if the zone has no cows reported).
 areas:
-  - {name: left,  fans: [3, 4], quadrants: [Q1, Q2, Q3]}
-  - {name: right, fans: [1, 2], quadrants: [Q4, Q5, Q6]}
+  - {name: left,  fans: [1, 2], quadrants: [Q4, Q5, Q6]}
+  - {name: right, fans: [3, 4], quadrants: [Q1, Q2, Q3]}
  
 # Temperature/humidity sensor in each quadrant (the number the Arduino reports). A quadrant whose sensor is not
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
@@ -158,7 +158,7 @@ safety_checks:
     flatline_minutes: 10        # temperature AND humidity both unchanged for this long...
     flatline_temp_c: 0.05       #   ...i.e. moved less than this
     flatline_rh_pct: 0.2
-    max_dev_from_median_c: 30.0  # more than this from the median of the other sensors (needs 3+ sensors)
+    max_dev_from_median_c: 3.0  # more than this from the median of the other sensors (needs 3+ sensors)
   camera:
     enabled: false              # true once the camera is connected
     source: picamera2           # picamera2 (Pi camera module) or usb
@@ -201,7 +201,7 @@ vision:
     right: {near: Q4, mid: Q5, far: Q6}
  
 loop:
-  decision_interval_s: 5   # sensor readings are averaged over this window
+  decision_interval_s: 30   # sensor readings are averaged over this window
   log_csv: logs/decisions.csv
   log_jsonl: logs/decisions.jsonl   # full records
  
@@ -214,7 +214,7 @@ llm:
   host: http://localhost:11434   # local Ollama on the Pi (OpenAI-compatible API at /v1)
   model: qwen2.5:0.5b            # fastest tiny model for the Pi 4 CPU; `ollama pull qwen2.5:0.5b`
   timeout_s: 300                 # Pi CPU is slow, esp. the first (cold) call; give it room
-  history: 3               # recent decisions the LLM sees
+  history: 10               # recent decisions the LLM sees
  
 guidelines:
   dir: guidelines           # .md / .txt / .pdf files used for retrieval (RAG)
