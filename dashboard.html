@@ -23,8 +23,7 @@ main{display:grid;gap:14px;padding:16px;grid-template-columns:repeat(auto-fit,mi
 .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid currentColor}
 .ok{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
-button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px;cursor:pointer}
-button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:8px 12px;cursor:pointer}button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
 input,select{font:inherit;width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
 form{display:flex;gap:8px}
 form.col{flex-direction:column}
@@ -91,7 +90,6 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
   <section class="card wide">
     <h2>Barn</h2>
     <div class="barn" id="barn"></div>
-    <div class="lbl" style="margin-top:8px">Fan speed shown as 0–100% effort across the usable 35–75% range (0% = just on, 100% = full airflow; "Off" = stopped). Hover a number for the actual duty.</div>
   </section>
  
   <!-- CAMERA + VISION -->
@@ -108,7 +106,7 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
   <!-- SENSORS -->
   <section class="card">
     <h2>Sensors</h2>
-    <div class="scroll"><table><thead><tr><th>Sensor</th><th>Quadrant</th><th>Temp</th><th>RH</th><th>THI</th><th></th></tr></thead><tbody id="sensRows"></tbody></table></div>
+    <div class="scroll"><table><thead><tr><th>Quadrant</th><th>Temp</th><th>RH</th><th>THI</th><th>Sensor</th><th></th></tr></thead><tbody id="sensRows"></tbody></table></div>
     <div class="lbl" id="seen" style="margin-top:6px"></div>
   </section>
  
@@ -123,25 +121,23 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
     <h2>Manual fan override</h2>
     <form id="ovrForm"><input id="ovrDuty" class="grow" type="number" min="0" max="100" placeholder="Fan %"><button class="on">Set</button><button type="button" id="ovrStop">Auto</button></form>
     <div class="err" id="ovrErr"></div>
-    <div class="lbl" id="ovrNote" style="margin-top:6px"></div>
   </section>
  
   <!-- ASSISTANT: instruction + question -->
   <section class="card">
     <h2>Assistant <span id="llmDot" class="dot"></span></h2>
+    <div id="goalNow" style="font-size:13px;margin-bottom:10px"></div>
     <div class="lbl">Tell the barn something</div>
-    <form id="goalForm" style="margin-top:4px"><input id="goal" class="grow" placeholder="e.g. milk prices are high, cool harder"><button>Send</button></form>
+    <form id="goalForm" style="margin-top:4px"><input id="goal" class="grow" placeholder="e.g. milk prices are high, cool harder"><button>Send</button><button type="button" id="goalReset" title="Drop the custom goal and go back to the default">Default</button></form>
     <div class="lbl" id="goalMsg" style="margin-top:6px"></div>
     <div class="lbl" style="margin-top:12px">Ask why</div>
     <div class="chat" id="chat" style="margin-top:4px"></div>
     <form id="askForm"><input id="ask" class="grow" placeholder="Why did the fans speed up?"><button>Ask</button></form>
-    <form id="hostForm" style="margin-top:8px"><input id="host" class="grow" placeholder="LLM host http://ip:11434"><button>Set</button></form>
   </section>
  
   <!-- INPUTS (solar + clock; camera feeds the rest) -->
   <section class="card">
     <h2>Inputs</h2>
-    <div class="lbl">Solar has no sensor; blank clock uses the Pi's real time. Cows, clustering and lying come from the camera.</div>
     <form id="manForm" class="fields" style="margin-top:8px">
       <label>Solar (W/m²)<input id="mS" inputmode="decimal"></label>
       <label>Clock (0–23.9)<input id="mH" inputmode="decimal" placeholder="real time"></label>
@@ -160,7 +156,6 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
   <!-- CHECK INPUTS vs OUTPUTS -->
   <section class="card wide">
     <h2>Check inputs against outputs</h2>
-    <div class="lbl" style="margin-bottom:8px">Try any conditions. Nothing here touches the fans or the log.</div>
     <form id="checkForm" class="fields">
       <label>Temp (°C)<input id="cT" inputmode="decimal" value="24"></label>
       <label>Humidity (%)<input id="cRH" inputmode="decimal" value="70"></label>
@@ -168,7 +163,6 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
       <label>Lying (0–1)<input id="cL" inputmode="decimal" value="0.5"></label>
       <label>Solar (W/m²)<input id="cS" inputmode="decimal" value="0"></label>
       <label>Hour (0–23.9)<input id="cH" inputmode="decimal"></label>
-      <label>Zone<select id="cArea"></select></label>
       <button class="on">Check</button>
     </form>
     <div class="err" id="cErr"></div>
@@ -188,7 +182,12 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
   <section class="card wide">
     <h2>Recent decisions</h2>
     <div class="scroll"><table><thead><tr><th>Time</th><th>THI</th><th>Eff. THI</th><th>Rise</th><th>Fans</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
-  </section>
+  <!-- SETTINGS (tucked away) -->
+  <details class="card wide" style="font-size:13px">
+    <summary style="cursor:pointer;color:var(--mut,#888)">Settings</summary>
+    <div class="lbl" style="margin-top:8px">LLM host</div>
+    <form id="hostForm" style="margin-top:4px"><input id="host" class="grow" placeholder="LLM host http://ip:11434"><button>Set</button></form>
+  </details>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -203,6 +202,7 @@ const FAN_FLOOR = 35, FAN_SAT = 75;
 const effort = d => d==null ? null : Math.max(0, Math.min(100, Math.round((d - FAN_FLOOR) / (FAN_SAT - FAN_FLOOR) * 100)));
 const fanLabel = d => d==null ? "–" : d <= 0 ? "Off" : effort(d) + "%";
 const fanTitle = d => d==null ? "" : `actual ${d.toFixed(0)}% duty`;
+const goalDir = t => t < 0.15 ? "cooling harder" : t > 0.15 ? "saving energy" : "balanced";
 let hostTyped=false, setupDone=false, manTyped=false, quadsSel=[];
  
 function cowCell(q, det, occ, cls){
@@ -219,14 +219,14 @@ function drawBarn(s, d){
     const fan = d ? d.fan_duty_pct[z.fans[0]-1] : null;
     const occ = a && a.cows_present ? a.quadrants_used : [];
     const cls = a && a.cows_present ? band(a.rise_c) : "cool";
-    const cells = z.quadrants.slice().reverse().map(q =>
+    const cells = z.quadrants.slice().map(q =>
       cowCell(q, per[q], occ.includes(q), cls)).join("");
     const rise = a && a.cows_present ? c2(a.rise_c) : "no cows";
     const air = a ? `${a.air_speed_m_s.toFixed(2)} m/s` : "–";
     return `<div class="side"><div class="top"><b>${esc(z.name)}</b><span class="fanbig" title="${fanTitle(fan)}">${fanLabel(fan)}</span></div>
       ${cells}<div class="foot"><span>rise ${rise}</span><span>${air} · fans ${z.fans.join("+")}</span></div></div>`;
   }).join("");
-  $("barn").innerHTML = `<div class="lead wide" style="grid-column:1/-1">far end</div>${html}<div class="lead wide" style="grid-column:1/-1">fans</div>`;
+  $("barn").innerHTML = `<div class="lead wide" style="grid-column:1/-1">fans</div>${html}<div class="lead wide" style="grid-column:1/-1">far end</div>`;
 }
 function drawBoxes(v){
   const cv=$("camCv"), img=$("camImg"); if(!cv || !img.clientWidth) return;
@@ -257,7 +257,6 @@ async function refresh(){
   if(!hostTyped) $("host").value = s.llm_host || "";
   const cam = s.camera_inputs;
   if(!setupDone){
-    $("cArea").innerHTML = s.areas.map(a=>`<option>${esc(a.name)}</option>`).join("");
     $("cS").value=s.manual.solar_wm2; $("cN").value=s.manual.clustering; $("cL").value=s.manual.lying;
     const n=new Date(); $("cH").value = s.manual.clock_hour ?? (n.getHours()+Math.round(n.getMinutes()/6)/10).toFixed(1);
     setupDone=true;
@@ -266,8 +265,9 @@ async function refresh(){
   quadsSel = s.manual.occupied_quadrants;
  
   // sensors
-  $("sensRows").innerHTML = s.sensors.map(x =>
-    `<tr><td>#${x.id}</td><td>${esc(x.areas.join(", "))}</td><td>${x.temp_c==null?"–":x.temp_c.toFixed(1)+"°"}</td><td>${x.rh==null?"–":x.rh.toFixed(0)+"%"}</td><td>${x.thi ?? "–"}</td><td class="${x.down?"bad":x.time?"ok":"warn"}">${x.down?"down":x.time?"ok":"…"}</td></tr>`).join("");
+  const qnum = x => { const m=String(x.areas&&x.areas[0]||"").match(/\d+/); return m?+m[0]:99; };
+  $("sensRows").innerHTML = s.sensors.slice().sort((a,b)=>qnum(a)-qnum(b)).map(x =>
+    `<tr><td><b>${esc(x.areas.join(", ")||"–")}</b></td><td>${x.temp_c==null?"–":x.temp_c.toFixed(1)+"°"}</td><td>${x.rh==null?"–":x.rh.toFixed(0)+"%"}</td><td>${x.thi ?? "–"}</td><td class="lbl">#${x.id}</td><td class="${x.down?"bad":x.time?"ok":"warn"}">${x.down?"down":x.time?"ok":"…"}</td></tr>`).join("");
   $("seen").textContent = s.sensors.some(x=>x.time) ? `Last reading ${s.seconds_since_valid}s ago` : "Waiting for readings…";
  
   const d = s.decisions[s.decisions.length-1];
@@ -305,7 +305,6 @@ async function refresh(){
  
   // override
   const o = s.override;
-  $("ovrNote").textContent = `Ends after ${o.max_minutes} min, or at once at THI ${o.revoke_thi}.`;
   $("ovrBox").style.display = o.active ? "" : "none";
   $("ovrBox").innerHTML = o.active ? `<b>Manual override:</b> fans ${o.duty_pct.toFixed(0)}% · back to auto in ${o.remaining_min} min` : "";
  
@@ -324,6 +323,9 @@ async function refresh(){
  
   $("simBox").style.display = s.simulate ? "" : "none";
   window._goalTarget = s.goal.target_rise_c;   // used silently by the check tool
+  $("goalNow").innerHTML = `<b>Now:</b> fans reach full at ${s.goal.target_rise_c}°C rise (${goalDir(s.goal.target_rise_c)})`
+    + `${s.goal.min_duty_pct>0?` · min fans ${s.goal.min_duty_pct}%`:""}`
+    + `${s.goal.note&&s.goal.note!=="default"?` · "${esc(s.goal.note)}"`:" · default"}`;
 }
  
 $("ovrForm").onsubmit = async e => { e.preventDefault(); $("ovrErr").textContent="";
@@ -340,8 +342,13 @@ $("host").oninput=()=>hostTyped=true;
 $("hostForm").onsubmit = e => { e.preventDefault(); hostTyped=false; post("/api/llm_host",{host:$("host").value}).then(refresh); };
 $("goalForm").onsubmit = async e => { e.preventDefault(); const text=$("goal").value.trim(); if(!text)return;
   $("goalMsg").textContent="Asking…"; const r = await post("/api/goal",{text});
-  $("goalMsg").textContent = r.error ? r.error : `✓ ${r.reason}${r.clamped?" (within limits)":""}`;
+  $("goalMsg").textContent = r.error ? r.error
+    : `✓ ${r.reason} → full cooling at ${r.target_rise_c}°C rise (${goalDir(r.target_rise_c)})${r.min_duty_pct>0?`, min fans ${r.min_duty_pct}%`:""}${r.clamped?" · clamped to limits":""}`;
   $("goal").value=""; refresh(); };
+$("goalReset").onclick = async () => { $("goalMsg").textContent="Resetting…";
+  const r = await post("/api/goal/reset",{});
+  $("goalMsg").textContent = r.error ? r.error : `✓ back to default → full cooling at ${r.target_rise_c}°C rise (${goalDir(r.target_rise_c)})`;
+  refresh(); };
 function addMsg(t,me){ const m=document.createElement("div"); m.className="msg"+(me?" me":""); m.textContent=t; $("chat").appendChild(m); $("chat").scrollTop=1e9; return m; }
 $("askForm").onsubmit = async e => { e.preventDefault(); const text=$("ask").value.trim(); if(!text)return;
   addMsg(text,true); $("ask").value=""; const m=addMsg("Thinking…"); const r=await post("/api/ask",{text});
@@ -349,7 +356,7 @@ $("askForm").onsubmit = async e => { e.preventDefault(); const text=$("ask").val
 $("checkForm").onsubmit = async e => { e.preventDefault(); $("cErr").textContent="";
   const num = id => $(id).value.trim()==="" ? NaN : Number($(id).value);
   const body = {temp_c:num("cT"), rh:num("cRH"), clustering:num("cN"), lying:num("cL"), solar_wm2:num("cS"),
-                hour:num("cH"), target_rise_c: window._goalTarget ?? 0.15, area:$("cArea").value, quadrants:quadsSel};
+                hour:num("cH"), target_rise_c: window._goalTarget ?? 0.15, quadrants:quadsSel};
   if([body.temp_c,body.rh,body.clustering,body.lying,body.solar_wm2,body.hour].some(v=>!Number.isFinite(v))){ $("cErr").textContent="Enter a number in every box."; return; }
   let r; try { r = await post("/api/whatif",body); } catch(err){ $("cErr").textContent="Pi unreachable."; return; }
   if(r.error){ $("cErr").textContent=r.error; $("cOut").style.display="none"; return; }
