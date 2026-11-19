@@ -313,7 +313,7 @@ async function refresh(){
   if(!cam){ $("visionList").innerHTML = `<div class="lbl">Camera not feeding the model.</div>`; }
   else if(v && v.error){ $("visionList").innerHTML = `<div class="lbl bad">${esc(v.error)}</div>`; }
   else if(v){ const pq = v.per_quad || {};
-    const items = Object.keys(pq).sort().map(q => `<span class="pill ok" style="margin:2px 4px 2px 0">${q}: ${pq[q].n}🐄 ${pq[q].conf}%</span>`).join("");
+    const items = Object.keys(pq).sort().map(q => `<span class="pill ok" style="margin:2px 4px 2px 0">${q}: ${pq[q].n}🐄</span>`).join("");
     $("visionList").innerHTML = `<div class="lbl">${v.cows||0} cows detected</div><div style="margin-top:4px">${items || `<span class="lbl">none in view</span>`}</div>`; }
   window._vision = cam ? v : null; drawBoxes(window._vision);
  
