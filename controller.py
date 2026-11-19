@@ -40,16 +40,56 @@ from safety import InputGuard, ManualOverride, camera_health
 # ---------- hardware links ----------
 class ArduinoLink:
     def __init__(self, port, baud):
+        self.port, self.baud, self.ser = port, baud, None
+        self._open()
+ 
+    def _candidates(self):
+        """The configured port first, then the stable by-id paths, then any /dev/ttyACM*/ttyUSB*,
+        so a reconnect still finds the Arduino if it re-enumerated on a different index."""
+        import glob
+        seen, out = set(), []
+        for p in [self.port, *sorted(glob.glob("/dev/serial/by-id/*")),
+                  *sorted(glob.glob("/dev/ttyACM*")), *sorted(glob.glob("/dev/ttyUSB*"))]:
+            if p and p not in seen:
+                seen.add(p)
+                out.append(p)
+        return out
+ 
+    def _open(self):
         import serial
-        self.ser = serial.Serial(port, baud, timeout=1)
-        time.sleep(2)                        # give the Arduino time if it resets when the port opens
-        self.ser.reset_input_buffer()
+        last = None
+        for p in self._candidates():
+            try:
+                self.ser = serial.Serial(p, self.baud, timeout=1)
+                time.sleep(2)                    # the Arduino resets when the port opens
+                self.ser.reset_input_buffer()
+                self.port = p
+                return True
+            except Exception as e:               # port busy / not present yet -> try the next
+                last = e
+        print(f"[serial] could not open any port ({last})")
+        return False
+ 
+    def reopen(self):
+        """Close and re-open after a serial error so a USB/cable hiccup self-heals (no manual reset)."""
+        try:
+            if self.ser:
+                self.ser.close()
+        except Exception:
+            pass
+        self.ser = None
+        return self._open()
  
     def read_line(self):
-        raw = self.ser.readline().decode(errors="ignore").strip()
+        if self.ser is None and not self._open():   # still down -> let run() back off and retry
+            time.sleep(1)
+            return None
+        raw = self.ser.readline().decode(errors="ignore").strip()   # SerialException bubbles to run()
         return raw or None
  
     def send_fans(self, duties):
+        if self.ser is None:
+            return
         self.ser.write(("F," + ",".join(f"{d:.0f}" for d in duties) + "\n").encode())
  
  
@@ -265,9 +305,21 @@ class Controller:
             self.event(msg)
         rec["faults"] = list(faults)
         if faults and self.cfg["safety"].get("enabled", True):
-            rec["fan_duty_pct"] = [100.0] * n_fans
-            rec["overrides"].insert(0, "Input fault -> fans 100% (fail-safe): " + "; ".join(faults))
-            rec["safety_status"] = "FAULT: fans 100%"
+            # Only blast the fans if there are cows to protect. If every zone is empty (camera), a sensor
+            # fault leaves the fans off. When the stale guard already handled the command (no areas in the
+            # record) keep that command and just flag the fault.
+            cows = any(a.get("cows_present") for a in rec["areas"])
+            if rec["areas"] and not cows:
+                rec["fan_duty_pct"] = [0.0] * n_fans
+                rec["overrides"].insert(0, "Input fault, but no cows -> fans off: " + "; ".join(faults))
+                rec["safety_status"] = "Fault (no cows, fans off)"
+            elif rec["areas"]:
+                rec["fan_duty_pct"] = [100.0] * n_fans
+                rec["overrides"].insert(0, "Input fault -> fans 100% (fail-safe): " + "; ".join(faults))
+                rec["safety_status"] = "FAULT: fans 100%"
+            else:
+                rec["overrides"].insert(0, "Input fault: " + "; ".join(faults))
+                rec["safety_status"] = "FAULT"
         elif self.override.active:
             rec["manual_override"] = {"duty_pct": self.override.duty[0],
                                       "remaining_min": round(self.override.remaining_s() / 60, 1)}
@@ -293,7 +345,14 @@ class Controller:
     def run(self):
         t0 = time.time()
         while True:
-            line = self.link.read_line()
+            try:
+                line = self.link.read_line()
+            except Exception as e:                       # serial dropped (USB autosuspend, unplug, Arduino hang)
+                self.event(f"Serial read error: {e} - reconnecting")
+                if hasattr(self.link, "reopen"):
+                    self.link.reopen()                   # self-heal instead of needing a manual reset
+                time.sleep(1)
+                line = None
             if line is None:
                 time.sleep(0.2)
             if line and line.startswith("S,"):
