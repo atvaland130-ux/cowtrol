@@ -52,8 +52,8 @@ manual_inputs:
 # Air speed AND THI for a zone = the average over the quadrants that have cows in them
 # (all 3 if the zone has no cows reported).
 areas:
-  - {name: left,  fans: [1, 2], quadrants: [Q4, Q5, Q6]}
-  - {name: right, fans: [3, 4], quadrants: [Q1, Q2, Q3]}
+  - {name: left,  fans: [3, 4], quadrants: [Q1, Q2, Q3], fan_label: "1+2"}
+  - {name: right, fans: [1, 2], quadrants: [Q4, Q5, Q6], fan_label: "3+4"}
  
 # Temperature/humidity sensor in each quadrant (the number the Arduino reports). A quadrant whose sensor is not
 # answering uses the average of the working sensors on its side (or of all working sensors if none on its side).
@@ -201,7 +201,7 @@ vision:
     right: {near: Q4, mid: Q5, far: Q6}
  
 loop:
-  decision_interval_s: 30   # sensor readings are averaged over this window
+  decision_interval_s: 3   # sensor readings are averaged over this window
   log_csv: logs/decisions.csv
   log_jsonl: logs/decisions.jsonl   # full records
  
