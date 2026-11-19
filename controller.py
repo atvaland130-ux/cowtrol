@@ -465,7 +465,8 @@ def make_app(ctl, cfg):
                                 "stress_threshold_c": cfg["goal"].get("stress_threshold_c")},
                            decisions=list(ctl.decisions)[-cfg["llm"]["history"]:], events=list(ctl.events),
                            calibrated=ctl.amap.all_measured, model=ctl.model.bundle.get("source", "MmCows"),
-                           areas=[{"name": a["name"], "fans": a["fans"], "quadrants": a["quadrants"]}
+                           areas=[{"name": a["name"], "fans": a["fans"], "quadrants": a["quadrants"],
+                                   "fan_label": a.get("fan_label", "+".join(map(str, a["fans"])))}
                                   for a in cfg["areas"]],
                            camera_inputs=ctl.vision is not None,   # True when the camera feeds the model
                            vision=(ctl.vision.last if ctl.vision else None),  # cows/quadrant + confidence
@@ -504,6 +505,17 @@ def make_app(ctl, cfg):
             return jsonify(error=f"LLM unavailable or invalid output: {e}"), 502
         g = ctl.set_goal(out["target_rise_c"], out["min_duty_pct"], f"LLM: \"{text}\" -> {out['reason']}", "llm")
         return jsonify({**g, "reason": out["reason"], "clamped": out["clamped"]})
+ 
+    @app.post("/api/goal/reset")           # drop any operator/LLM goal, go back to config default
+    def goal_reset():
+        d = cfg["goal"]["default"]
+        g = ctl.set_goal(d["target_rise_c"], d.get("min_duty_pct", 0), "default", "config")
+        return jsonify({**g, "reason": "back to default", "clamped": False})
+ 
+    @app.post("/api/ask/clear")            # forget the assistant chat so far
+    def ask_clear():
+        chat_history.clear()
+        return jsonify(ok=True)
  
     @app.post("/api/manual")               # inputs we do not sense yet (solar, clustering, lying, occupied quadrants)
                                            # and the clock override
