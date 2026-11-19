@@ -214,7 +214,7 @@ llm:
   host: http://localhost:11434   # local Ollama on the Pi (OpenAI-compatible API at /v1)
   model: qwen2.5:0.5b            # fastest tiny model for the Pi 4 CPU; `ollama pull qwen2.5:0.5b`
   timeout_s: 300                 # Pi CPU is slow, esp. the first (cold) call; give it room
-  history: 10               # recent decisions the LLM sees
+  history: 3               # recent decisions the LLM sees
  
 guidelines:
   dir: guidelines           # .md / .txt / .pdf files used for retrieval (RAG)
