@@ -207,8 +207,8 @@ let hostTyped=false, setupDone=false, manTyped=false, quadsSel=[];
  
 function cowCell(q, det, occ, cls){
   const name = `<span class="q">${q}</span>`;
-  if(det){ const lie = det.lying ? ` · ${det.lying}/${det.n} lying` : "";
-    return `<div class="cell has ${cls}">${name}<span class="cow">🐄 ${det.n}</span><span class="cf">${det.conf}% sure${lie}</span></div>`; }
+  if(det){ const lie = det.lying ? `${det.lying}/${det.n} lying` : "";
+    return `<div class="cell has ${cls}">${name}<span class="cow">🐄 ${det.n}</span><span class="cf">${lie}</span></div>`; }
   if(occ) return `<div class="cell has ${cls}">${name}<span class="cow">🐄 cows</span></div>`;
   return `<div class="cell empty">${name}empty</div>`;
 }
@@ -369,7 +369,7 @@ $("checkForm").onsubmit = async e => { e.preventDefault(); $("cErr").textContent
   $("cCurve").innerHTML = r.curve.map(c=>`<tr class="${c.fan_pct===a.fan_duty_pct?"pick":""}"><td>${c.fan_pct.toFixed(0)}%</td><td>${c.air_speed_m_s.toFixed(2)} m/s</td><td>${c.thi_eff.toFixed(1)}</td><td>${c2(c.rise_c)}</td></tr>`).join("");
 };
 const camImg = $("camImg");
-camImg.onload = () => { $("camNote").textContent = "Live (about 1 fps). Boxes refresh each model run."; drawBoxes(window._vision); };
+camImg.onload = () => { $("camNote").textContent = ""; drawBoxes(window._vision); };
 window.addEventListener("resize", () => drawBoxes(window._vision));
 camImg.onerror = () => { $("camNote").textContent = "No camera (or in use by the safety check)."; };
 setInterval(()=>{ camImg.src = "/camera.jpg?"+Date.now(); }, 1000);
