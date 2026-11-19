@@ -219,12 +219,12 @@ function drawBarn(s, d){
     const fan = d ? d.fan_duty_pct[z.fans[0]-1] : null;
     const occ = a && a.cows_present ? a.quadrants_used : [];
     const cls = a && a.cows_present ? band(a.rise_c) : "cool";
-    const cells = z.quadrants.slice().map(q =>
+    const cells = z.quadrants.slice().reverse().map(q =>
       cowCell(q, per[q], occ.includes(q), cls)).join("");
     const rise = a && a.cows_present ? c2(a.rise_c) : "no cows";
     const air = a ? `${a.air_speed_m_s.toFixed(2)} m/s` : "–";
     return `<div class="side"><div class="top"><b>${esc(z.name)}</b><span class="fanbig" title="${fanTitle(fan)}">${fanLabel(fan)}</span></div>
-      ${cells}<div class="foot"><span>rise ${rise}</span><span>${air} · fans ${z.fans.join("+")}</span></div></div>`;
+      ${cells}<div class="foot"><span>rise ${rise}</span><span>${air} · fans ${z.fan_label || z.fans.join("+")}</span></div></div>`;
   }).join("");
   $("barn").innerHTML = `<div class="lead wide" style="grid-column:1/-1">fans</div>${html}<div class="lead wide" style="grid-column:1/-1">far end</div>`;
 }
