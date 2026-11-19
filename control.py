@@ -248,8 +248,15 @@ def decide(model, cfg, amap, goal, readings, inputs, stale=False, warnings=None)
     if stale or not model.ready:          # no sensor data at all (or no model) -> the model cannot run; this
         why = (f"No valid sensor readings for {cfg['safety']['stale_data_s']} s" if stale   # guard stays on
                else "No body temperature model (run train_realcow.py)")
-        rec.update(areas=[], rise_c=None, thi_eff=None, fan_duty_pct=[100.0] * nf, safety_status="Safe with Override")
-        rec["overrides"].append(f"{why} -> fans 100% (failsafe)")
+        # The failsafe protects cows. If the camera says the barn is empty there is nothing to cool,
+        # so leave the fans off instead of blasting 100%. When occupancy is unknown (no camera -> the
+        # manual inputs default to all quadrants occupied) it stays conservative and runs 100%.
+        cows = any((inputs.get(a["name"]) or {}).get("cows_present") for a in cfg["areas"])
+        rec.update(areas=[], rise_c=None, thi_eff=None,
+                   fan_duty_pct=[100.0 if cows else 0.0] * nf,
+                   safety_status="Safe with Override" if cows else "Safe (no cows)")
+        rec["overrides"].append(f"{why} -> fans 100% (failsafe)" if cows
+                                else f"{why}, but no cows detected -> fans off")
         return rec
  
     results = []
