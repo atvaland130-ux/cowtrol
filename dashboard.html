@@ -91,6 +91,7 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
   <section class="card wide">
     <h2>Barn</h2>
     <div class="barn" id="barn"></div>
+    <div class="lbl" style="margin-top:8px">Fan speed shown as 0–100% effort across the usable 35–75% range (0% = just on, 100% = full airflow; "Off" = stopped). Hover a number for the actual duty.</div>
   </section>
  
   <!-- CAMERA + VISION -->
@@ -196,6 +197,12 @@ const post = (u,b) => fetch(u,{method:"POST",headers:{"Content-Type":"applicatio
 const c2 = v => v==null ? "–" : `${v>0?"+":v<0?"−":""}${Math.abs(v).toFixed(2)}°`;
 const hhmm = h => `${String(Math.floor(h)).padStart(2,"0")}:${String(Math.round((h%1)*60)%60).padStart(2,"0")}`;
 const band = r => r==null ? "" : r < 0.10 ? "cool" : r < 0.20 ? "warm" : "hot";
+// Fan speed shown as 0-100% "effort" across the usable band (cut-in -> airflow saturation);
+// the real PWM duty is kept in each number's tooltip and is what the controller actually commands.
+const FAN_FLOOR = 35, FAN_SAT = 75;
+const effort = d => d==null ? null : Math.max(0, Math.min(100, Math.round((d - FAN_FLOOR) / (FAN_SAT - FAN_FLOOR) * 100)));
+const fanLabel = d => d==null ? "–" : d <= 0 ? "Off" : effort(d) + "%";
+const fanTitle = d => d==null ? "" : `actual ${d.toFixed(0)}% duty`;
 let hostTyped=false, setupDone=false, manTyped=false, quadsSel=[];
  
 function cowCell(q, det, occ, cls){
@@ -216,7 +223,7 @@ function drawBarn(s, d){
       cowCell(q, per[q], occ.includes(q), cls)).join("");
     const rise = a && a.cows_present ? c2(a.rise_c) : "no cows";
     const air = a ? `${a.air_speed_m_s.toFixed(2)} m/s` : "–";
-    return `<div class="side"><div class="top"><b>${esc(z.name)}</b><span class="fanbig">${fan==null?"–":fan.toFixed(0)+"%"}</span></div>
+    return `<div class="side"><div class="top"><b>${esc(z.name)}</b><span class="fanbig" title="${fanTitle(fan)}">${fanLabel(fan)}</span></div>
       ${cells}<div class="foot"><span>rise ${rise}</span><span>${air} · fans ${z.fans.join("+")}</span></div></div>`;
   }).join("");
   $("barn").innerHTML = `<div class="lead wide" style="grid-column:1/-1">far end</div>${html}<div class="lead wide" style="grid-column:1/-1">fans</div>`;
@@ -276,14 +283,14 @@ async function refresh(){
         : `<span class="pill ok">model</span>`;
       return `<div class="zone"><div class="hd"><b>${esc(a.area)}</b>${chip}</div>
         <div class="metrics">
-          <div><div class="lbl">Fans</div><div class="v">${fan.toFixed(0)}%</div></div>
+          <div><div class="lbl">Fans</div><div class="v" title="${fanTitle(fan)}">${fanLabel(fan)}</div></div>
           <div><div class="lbl">Predicted rise</div><div class="v">${a.cows_present?c2(a.rise_c):"–"}</div></div>
           <div><div class="lbl">Air speed</div><div class="v">${a.air_speed_m_s.toFixed(2)}</div></div>
           <div><div class="lbl">Cows</div><div class="v">${a.cows_present?esc(a.quadrants_used.join(" ")):"none"}</div></div>
         </div>
         <div class="ins">THI ${a.thi_ambient.toFixed(1)} → eff ${a.thi_eff.toFixed(1)} · clustering ${a.clustering} · lying ${(a.lying*100).toFixed(0)}% · ${hhmm(a.hour)}${a.cows_present && !a.target_reached ? " · at full, rise still above target" : ""}</div>
       </div>`;
-    }).join("") || `<div class="lbl">No data (failsafe) — fans ${d.fan_duty_pct.map(f=>f.toFixed(0)+"%").join(" / ")}</div>`;
+    }).join("") || `<div class="lbl">No data (failsafe) — fans ${d.fan_duty_pct.map(f=>fanLabel(f)).join(" / ")}</div>`;
   }
  
   // faults
@@ -313,7 +320,7 @@ async function refresh(){
  
   // recent decisions
   $("rows").innerHTML = s.decisions.slice().reverse().map(d =>
-    `<tr><td>${d.timestamp.slice(11)}</td><td>${d.thi?.toFixed(1)??"–"}</td><td>${d.thi_eff?.toFixed(1)??"–"}</td><td>${d.rise_c==null?"failsafe":c2(d.rise_c)}</td><td>${d.fan_duty_pct.map(f=>f.toFixed(0)+"%").join(" / ")}</td><td class="${d.safety_status==="Safe"?"ok":"warn"}">${d.safety_status}</td></tr>`).join("");
+    `<tr><td>${d.timestamp.slice(11)}</td><td>${d.thi?.toFixed(1)??"–"}</td><td>${d.thi_eff?.toFixed(1)??"–"}</td><td>${d.rise_c==null?"failsafe":c2(d.rise_c)}</td><td>${d.fan_duty_pct.map(f=>fanLabel(f)).join(" / ")}</td><td class="${d.safety_status==="Safe"?"ok":"warn"}">${d.safety_status}</td></tr>`).join("");
  
   $("simBox").style.display = s.simulate ? "" : "none";
   window._goalTarget = s.goal.target_rise_c;   // used silently by the check tool
