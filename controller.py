@@ -376,10 +376,18 @@ class Controller:
                 rec = decide(self.model, self.cfg, self.amap, goal, readings, inputs,
                              stale=readings is None, warnings=warnings)
                 self.apply_safeguards(rec, faults)
-                self.link.send_fans(rec["fan_duty_pct"])
-                log(rec, self.cfg)
+                self.link.send_fans(rec["fan_duty_pct"])   # drive fans every cycle
+                # only log/record a decision when something actually changed (avoids flooding
+                # the Recent-decisions table + LLM history when the barn is steady)
+                sig = lambda r: (tuple(round(x, 1) for x in r["fan_duty_pct"]),
+                                 None if r.get("rise_c") is None else round(r["rise_c"], 3),
+                                 r.get("safety_status"), tuple(r.get("overrides", [])))
                 with self.lock:
-                    self.decisions.append(rec)
+                    last = self.decisions[-1] if self.decisions else None
+                if last is None or sig(rec) != sig(last):
+                    log(rec, self.cfg)
+                    with self.lock:
+                        self.decisions.append(rec)
                 print(f"{rec['timestamp']} rise={rec['rise_c']} C target={goal['target_rise_c']} "
                       f"duty={rec['fan_duty_pct']} {rec['safety_status']}")
  
