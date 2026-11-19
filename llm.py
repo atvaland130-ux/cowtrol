@@ -84,12 +84,18 @@ Reply with JSON only: {{"target_rise_c": ..., "min_duty_pct": ..., "reason": "<o
         cur = decisions[-1] if decisions else None
         if cur:
             duties = cur.get("fan_duty_pct") or []
+            # per-zone fan state in plain language, so the model answers left/right questions from fact
+            zlines = []
+            for a in cfg["areas"]:
+                zd = [duties[i - 1] for i in a["fans"] if 0 < i <= len(duties)]
+                on = "ON" if any(x > 0 for x in zd) else "OFF"
+                zlines.append(f"- {a['name']} zone (quadrants {', '.join(a['quadrants'])}): "
+                              f"fans {on} at {', '.join(str(round(x)) for x in zd) or '0'} %")
             now = (f"CURRENT STATE (most recent decision, {cur.get('timestamp','')}):\n"
-                   f"- fan speed: {', '.join(str(round(d)) for d in duties)} % (per fan); "
-                   f"max {round(max(duties)) if duties else 0} %\n"
+                   + "\n".join(zlines) + "\n"
                    f"- safety status: {cur.get('safety_status','?')}; overrides: {cur.get('overrides') or 'none'}\n"
                    f"- target rise: {cur.get('goal',{}).get('target_rise_c','?')} C\n"
-                   "Use these exact numbers for any question about the CURRENT state.")
+                   "Use these exact per-zone numbers for any question about which fans are on or the current state.")
         else:
             now = "CURRENT STATE: no decisions yet."
         system = f"""You explain an automated dairy barn fan controller to its operator.
