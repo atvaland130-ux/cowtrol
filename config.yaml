@@ -201,7 +201,7 @@ vision:
     right: {near: Q4, mid: Q5, far: Q6}
  
 loop:
-  decision_interval_s: 3   # sensor readings are averaged over this window
+  decision_interval_s: 5   # sensor readings are averaged over this window
   log_csv: logs/decisions.csv
   log_jsonl: logs/decisions.jsonl   # full records
  
