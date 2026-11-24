@@ -41,6 +41,19 @@ manual_inputs:
   occupied_quadrants: [Q1, Q2, Q3, Q4, Q5, Q6]   # quadrants with cows in them (camera: where each cow's box is)
   clock_hour: null          # null = the Pi's clock; 0-23.99 = pretend it is this time of day (demo/testing)
  
+# ---------------- Auto solar from live weather (controller.py weather_loop) ----------------
+# Fetches ground-level solar irradiance (W/m2) from Open-Meteo (free, no API key) and writes it into
+# manual_inputs.solar_wm2 every refresh_s. Overrides the manual solar value while enabled. Fail-safe: on any
+# network/API error it keeps the current solar value and never stalls the control loop.
+weather:
+  enabled: true
+  latitude: null        # null = auto-detect from the Pi's internet IP (ip-api.com)
+  longitude: null
+  fallback_lat: 43.0731 # Madison, WI, used if auto-detect fails
+  fallback_lon: -89.4012
+  shade_factor: 0.3     # fraction of outdoor sun reaching the cows under the roof (tune this)
+  refresh_s: 600        # how often to re-fetch, seconds (600 = every 10 min)
+ 
 # ---------------- Quadrants, zones, fans and sensors ----------------
 # The barn floor is 6 quadrants, 3 long x 2 wide, seen from behind the fans looking down the barn:
 #      [Q3][Q6]   far
@@ -193,7 +206,7 @@ vision:
     Q6: [277, 13]
   # The barn floor's 4 corners IN THE IMAGE (pixels), order [near-left, near-right, far-right, far-left];
   # NEAR = row closest to the fans (Q1/Q4), LEFT = the Q1-Q3 side. PLACEHOLDER = whole 640x480 frame,
-  # axis-aligned — REPLACE after mounting using calibrate_vision.py.
+  # axis-aligned - REPLACE after mounting using calibrate_vision.py.
   floor_quad_px: [[0, 480], [640, 480], [640, 0], [0, 0]]
   barn_wh_m: [0.4572, 0.762]    # model barn floor [width (left-right), length (near-far)] m = 18 x 30 in
   quadrant_grid:                # which quadrant each (column, row) cell is; matches `areas`
