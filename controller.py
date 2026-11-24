@@ -287,8 +287,9 @@ class Controller:
                 except Exception as e:
                     faults.append(f"Camera error: {e}")
         new, cleared = set(faults) - set(self.faults), set(self.faults) - set(faults)
+        acts = self.cfg["safety"].get("enabled", True)   # with safety off, a fault is logged but does NOT force fans
         for f in sorted(new):
-            self.event(f"FAULT: {f} -> fans 100%")
+            self.event(f"FAULT: {f} -> fans 100%" if acts else f"Sensor note (safety off, model keeps running): {f}")
         for f in sorted(cleared):
             self.event(f"Fault cleared: {f}")
         with self.lock:
@@ -467,8 +468,11 @@ def make_app(ctl, cfg):
         with ctl.lock:
             sensors = [{"id": sid, "areas": [q for q, i in cfg["quadrant_sensors"].items() if i == sid],
                         "down": sn["down"], **sn["latest"]} for sid, sn in ctl.sensors.items()]
+            _lt = time.localtime()
             return jsonify(sensors=sensors, goal=ctl.goal, goal_limits=cfg["goal"]["limits"],
                            goal_default=cfg["goal"]["default"], manual=ctl.manual,
+                           server_hour=round(_lt.tm_hour + _lt.tm_min / 60.0, 2),
+                           server_clock=time.strftime("%I:%M %p").lstrip("0"),
                            cbt={"baseline_c": cfg["goal"].get("baseline_c"),
                                 "stress_threshold_c": cfg["goal"].get("stress_threshold_c")},
                            decisions=list(ctl.decisions)[-cfg["llm"]["history"]:], events=list(ctl.events),
@@ -662,4 +666,5 @@ def main():
  
 if __name__ == "__main__":
     main()
+ 
  
