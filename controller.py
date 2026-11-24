@@ -23,6 +23,7 @@ import random
 import sys
 import threading
 import time
+import urllib.request
  
 import numpy as np
 from flask import Flask, Response, jsonify, request, send_file
@@ -222,6 +223,23 @@ class Controller:
         with self.lock:
             self.events.appendleft({"time": time.strftime("%H:%M:%S"), "msg": msg})
         print(f"[event] {msg}")
+ 
+    def weather_loop(self):
+        """Auto solar: every weather.refresh_s, fetch ground-level solar irradiance (W/m2) from Open-Meteo
+        and write it into manual['solar_wm2'] so the model's solar input tracks live weather. Fail-safe:
+        on any network/API error it keeps the current solar value and never stalls the control loop."""
+        w = self.cfg.get("weather", {})
+        refresh_s = float(w.get("refresh_s", 600))
+        while True:
+            ghi = fetch_solar_wm2(self.cfg)
+            if ghi is not None:
+                with self.lock:
+                    self.manual["solar_wm2"] = round(ghi, 1)
+                self.event(f"Weather: solar set to {ghi:.0f} W/m2")
+                self.decide_now.set()
+            else:
+                print("[weather] fetch failed; keeping current solar value")
+            time.sleep(refresh_s)
  
     def handle_reading(self, line):
         """S,<temp>,<rh>  or  S,<sensor>,<temp>,<rh>"""
@@ -650,6 +668,40 @@ def make_app(ctl, cfg):
     return app
  
  
+def _geolocate():
+    """Best-effort lat/lon from the Pi's public IP (no API key). Returns (lat, lon) or None on any error."""
+    try:
+        with urllib.request.urlopen("http://ip-api.com/json/", timeout=8) as r:
+            d = json.load(r)
+        if d.get("status") == "success":
+            return float(d["lat"]), float(d["lon"])
+    except Exception:
+        pass
+    return None
+ 
+ 
+def fetch_solar_wm2(cfg):
+    """Live ground-level solar irradiance (W/m2) reaching the cows, from Open-Meteo (free, no API key).
+    Uses config weather.latitude/longitude if set, else auto-detects from the Pi's IP, else the config
+    fallback lat/lon. Multiplies the outdoor GHI by weather.shade_factor (what gets under the barn roof).
+    Returns None on any error so the caller can keep the last value."""
+    w = cfg.get("weather", {})
+    lat, lon = w.get("latitude"), w.get("longitude")
+    if lat is None or lon is None:
+        loc = _geolocate()
+        lat, lon = loc if loc else (w.get("fallback_lat"), w.get("fallback_lon"))
+    if lat is None or lon is None:
+        return None
+    url = (f"https://api.open-meteo.com/v1/forecast?latitude={float(lat):.4f}"
+           f"&longitude={float(lon):.4f}&current=shortwave_radiation")
+    try:
+        with urllib.request.urlopen(url, timeout=8) as r:
+            ghi = float(json.load(r)["current"]["shortwave_radiation"])
+    except Exception:
+        return None
+    return max(0.0, ghi * float(w.get("shade_factor", 0.3)))
+ 
+ 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--simulate", action="store_true", help="fake sensor, no Arduino")
@@ -660,11 +712,15 @@ def main():
     link = SimLink(sensor_ids(cfg)) if args.simulate else ArduinoLink(cfg["serial"]["port"], cfg["serial"]["baud"])
     ctl = Controller(cfg, link, args.interval or cfg["loop"]["decision_interval_s"])
     threading.Thread(target=ctl.run, daemon=True).start()
+    if cfg.get("weather", {}).get("enabled"):
+        threading.Thread(target=ctl.weather_loop, daemon=True).start()
+        print("[weather] auto solar from live weather ON")
     print(f"Dashboard: http://<this-pi>.local:{cfg['dashboard']['port']}")
     make_app(ctl, cfg).run(host="0.0.0.0", port=cfg["dashboard"]["port"], threaded=True)
  
  
 if __name__ == "__main__":
     main()
+ 
  
  
