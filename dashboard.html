@@ -75,7 +75,7 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
 </head>
 <body>
 <header>
-  <h1>Cowtrol <span class="tag" id="modeTag">–</span></h1>
+  <h1>Cowtrol</h1>
   <div class="sub" id="meta">connecting…</div>
 </header>
 <main>
@@ -144,6 +144,7 @@ img.cam{width:100%;border-radius:9px;display:block;background:var(--bar);aspect-
       <button>Apply</button>
     </form>
     <div class="err" id="manErr"></div>
+    <div class="lbl" id="clockNow" style="margin-top:6px"></div>
     <div id="simBox" style="display:none;margin-top:10px">
       <div class="lbl">Test faults (simulation)</div>
       <div class="btns">
@@ -250,7 +251,8 @@ function drawBoxes(v){
 async function refresh(){
   let s;
   try { s = await (await fetch("/api/state")).json(); } catch(e){ $("meta").textContent="Pi unreachable"; return; }
-  $("modeTag").textContent = s.mode || "–";
+  if(s.server_clock){ $("mH").placeholder = `real time (${s.server_clock})`;
+    $("clockNow").textContent = `Pi clock now: ${s.server_clock}  ·  ${s.server_hour}`; }
   const last0 = s.decisions[s.decisions.length-1];
   $("meta").textContent = `${s.model} · safety ${last0 ? last0.safety_status : "–"}`;
   $("llmDot").style.background = s.llm_online ? "var(--good)" : "var(--bad)";
@@ -377,4 +379,5 @@ refresh(); setInterval(refresh, 2000);
 </script>
 </body>
 </html>
+ 
  
