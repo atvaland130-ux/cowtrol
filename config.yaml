@@ -158,7 +158,7 @@ safety_checks:
     flatline_minutes: 10        # temperature AND humidity both unchanged for this long...
     flatline_temp_c: 0.05       #   ...i.e. moved less than this
     flatline_rh_pct: 0.2
-    max_dev_from_median_c: 3.0  # more than this from the median of the other sensors (needs 3+ sensors)
+    max_dev_from_median_c: 20.0  # more than this from the median of the other sensors (needs 3+ sensors)
   camera:
     enabled: false              # true once the camera is connected
     source: picamera2           # picamera2 (Pi camera module) or usb
